@@ -1,30 +1,39 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http/http.dart' as http;
 
 class CameraView extends StatefulWidget {
   final String ipAddress;
+  final bool autoRefresh;
+  final Duration refreshInterval;
 
-  const CameraView({super.key, required this.ipAddress});
+  const CameraView({
+    super.key, 
+    required this.ipAddress,
+    this.autoRefresh = true,
+    this.refreshInterval = const Duration(seconds: 2),
+  });
 
   @override
   State<CameraView> createState() => _CameraViewState();
 }
 
 class _CameraViewState extends State<CameraView> {
-  String _imageUrl = '';
   Timer? _refreshTimer;
   bool _isLoading = false;
   String? _errorMessage;
+  String _imageUrl = '';
 
   @override
   void initState() {
     super.initState();
     _updateImageUrl();
-    // Refresh image every 2 seconds instead of 1 to reduce load
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      _updateImageUrl();
-    });
+    
+    if (widget.autoRefresh) {
+      _refreshTimer = Timer.periodic(widget.refreshInterval, (timer) {
+        _updateImageUrl();
+      });
+    }
   }
 
   @override
@@ -33,8 +42,14 @@ class _CameraViewState extends State<CameraView> {
     super.dispose();
   }
 
+  String _getImageUrl() {
+    // Ensure the IP address is properly formatted
+    final cleanIp = widget.ipAddress.replaceAll('http://', '').replaceAll('/', '');
+    return 'http://$cleanIp/cam-hi.jpg';
+  }
+
   Future<void> _updateImageUrl() async {
-    if (_isLoading) return; // Prevent multiple simultaneous requests
+    if (_isLoading) return;
 
     setState(() {
       _isLoading = true;
@@ -43,136 +58,109 @@ class _CameraViewState extends State<CameraView> {
     });
 
     try {
-      final response = await http.get(Uri.parse(_imageUrl));
-      print('Response status code: ${response.statusCode}');
-      print('Response content-type: ${response.headers['content-type']}');
-      print('Response body length: ${response.bodyBytes.length}');
+      final response = await http.get(Uri.parse(_imageUrl))
+          .timeout(const Duration(seconds: 5));
 
-      if (response.statusCode != 200) {
-        throw Exception('Server returned ${response.statusCode}');
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to load image';
+        });
       }
-
-      if (response.bodyBytes.isEmpty) {
-        throw Exception('Received empty image data');
-      }
-
-      setState(() {
-        _isLoading = false;
-      });
     } catch (e) {
-      print('Error fetching image: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = e.toString();
+        _errorMessage = 'Connection error';
       });
     }
-  }
-
-  String _getImageUrl() {
-    if (kIsWeb) {
-      // Use a proxy URL for web development
-      return 'http://localhost:8080/proxy?url=http://${widget.ipAddress}/cam-hi.jpg&t=${DateTime.now().millisecondsSinceEpoch}';
-    }
-    return 'http://${widget.ipAddress}/cam-hi.jpg?t=${DateTime.now().millisecondsSinceEpoch}';
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
       children: [
-        Expanded(
+        // Image container with fixed aspect ratio
+        AspectRatio(
+          aspectRatio: 4 / 3, // Standard ESP32-CAM aspect ratio
           child: Container(
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(12),
             ),
-            margin: const EdgeInsets.all(8),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // Image
-                Image.network(
-                  _imageUrl,
-                  fit: BoxFit.contain,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) {
-                      print('Image loaded successfully');
-                      return child;
-                    }
-                    return Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: _errorMessage != null
+                  ? Center(
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircularProgressIndicator(
+                          Icon(
+                            Icons.error_outline,
+                            color: Colors.red[300],
+                            size: 48,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _updateImageUrl,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Image.network(
+                      _imageUrl,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true, // Prevents flickering between reloads
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Center(
+                          child: CircularProgressIndicator(
                             value: loadingProgress.expectedTotalBytes != null
                                 ? loadingProgress.cumulativeBytesLoaded /
                                     loadingProgress.expectedTotalBytes!
                                 : null,
+                            color: Colors.white70,
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Loading: ${((loadingProgress.cumulativeBytesLoaded / 
-                              (loadingProgress.expectedTotalBytes ?? 1)) * 100).toStringAsFixed(1)}%',
+                        );
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            color: Colors.red[300],
+                            size: 48,
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    print('Error displaying image: $error');
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Error: ${_errorMessage ?? error.toString()}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                // Loading indicator
-                if (_isLoading)
-                  Container(
-                    color: Colors.black26,
-                    child: const Center(
-                      child: CircularProgressIndicator(),
+                        );
+                      },
                     ),
-                  ),
-              ],
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : _updateImageUrl,
-                    child: const Text('Refresh'),
-                  ),
-                  const SizedBox(width: 16),
-                  Text('IP: ${widget.ipAddress}'),
-                ],
-              ),
-              if (_errorMessage != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
-            ],
+        // Refresh button overlay
+        Positioned(
+          top: 8,
+          right: 8,
+          child: Material(
+            color: Colors.black45,
+            borderRadius: BorderRadius.circular(20),
+            child: IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _isLoading ? null : _updateImageUrl,
+              tooltip: 'Refresh image',
+            ),
           ),
         ),
       ],

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'camera_view.dart';
+import 'package:provider/provider.dart';
+import 'screens/dashboard_screen.dart';
+import 'providers/security_provider.dart';
+import 'services/security_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -10,29 +13,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'ESP32-CAM Viewer',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
+    return ChangeNotifierProvider(
+      create: (_) => SecurityProvider(
+        SecurityService(baseUrl: 'http://your-backend-url'),
       ),
-      home: const MyHomePage(),
-    );
-  }
-}
-
-class MyHomePage extends StatelessWidget {
-  const MyHomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ESP32-CAM Viewer'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: const CameraView(
-        ipAddress: '172.20.10.3', // Replace with your ESP32-CAM's IP address
+      child: MaterialApp(
+        title: 'Security System',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.light,
+          ),
+          useMaterial3: true,
+        ),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.blue,
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
+        ),
+        home: const DashboardScreen(),
       ),
     );
   }
