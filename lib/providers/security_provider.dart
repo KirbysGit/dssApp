@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import '../models/security_device.dart';
-import '../services/security_service.dart';
+import '../services/mock_security_service.dart';
 
 class SecurityProvider extends ChangeNotifier {
-  final SecurityService _service;
+  final MockSecurityService _service;
   List<SecurityDevice> _devices = [];
   bool _isLoading = false;
   String? _error;
@@ -13,18 +13,18 @@ class SecurityProvider extends ChangeNotifier {
   List<SecurityDevice> get devices => _devices;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  
-  Future<void> addDevice(SecurityDevice device) async {
-    _devices.add(device);
-    await _checkDeviceStatus(device);
+
+  Future<void> loadDevices() async {
+    _isLoading = true;
+    _error = null;
     notifyListeners();
-  }
-  
-  Future<void> _checkDeviceStatus(SecurityDevice device) async {
-    final isOnline = await _service.checkDeviceStatus(device);
-    final index = _devices.indexWhere((d) => d.id == device.id);
-    if (index != -1) {
-      _devices[index].isOnline = isOnline;
+
+    try {
+      _devices = await _service.getDevices();
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
   }
@@ -36,7 +36,8 @@ class SecurityProvider extends ChangeNotifier {
     
     try {
       for (var device in _devices) {
-        await _checkDeviceStatus(device);
+        final isOnline = await _service.checkDeviceStatus(device);
+        device.isOnline = isOnline;
       }
     } catch (e) {
       _error = e.toString();

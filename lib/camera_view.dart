@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 
+bool get isInDebugMode {
+  bool inDebugMode = false;
+  assert(inDebugMode = true); // This will be true only in debug mode
+  return inDebugMode;
+}
+
 class CameraView extends StatefulWidget {
   final String ipAddress;
   final bool autoRefresh;
@@ -43,7 +49,12 @@ class _CameraViewState extends State<CameraView> {
   }
 
   String _getImageUrl() {
-    // Ensure the IP address is properly formatted
+    if (isInDebugMode) {
+      // Use a placeholder image in debug mode
+      return 'https://picsum.photos/800/600';
+    }
+    
+    // Original code for production
     final cleanIp = widget.ipAddress.replaceAll('http://', '').replaceAll('/', '');
     return 'http://$cleanIp/cam-hi.jpg';
   }

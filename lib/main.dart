@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/dashboard_screen.dart';
 import 'providers/security_provider.dart';
-import 'services/security_service.dart';
+import 'services/mock_security_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -15,7 +15,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => SecurityProvider(
-        SecurityService(baseUrl: 'http://your-backend-url'),
+        MockSecurityService(),
       ),
       child: MaterialApp(
         title: 'Security System',
