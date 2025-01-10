@@ -1,4 +1,4 @@
-package com.example.deployable_security_system
+package com.example.dss_app
 
 import io.flutter.embedding.android.FlutterActivity
 
