@@ -4,6 +4,7 @@ import '../providers/security_provider.dart';
 import '../widgets/device_grid.dart';
 import '../widgets/status_header.dart';
 import '../widgets/alert_list.dart';
+import '../screens/camera_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -118,6 +119,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: 'Alerts',
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CameraScreen(),
+            ),
+          );
+        },
+        child: const Icon(Icons.camera_alt),
       ),
     );
   }

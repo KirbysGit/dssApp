@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/dashboard_screen.dart';
+import 'screens/camera_screen.dart';
 import 'providers/security_provider.dart';
 import 'services/mock_security_service.dart';
 
