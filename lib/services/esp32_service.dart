@@ -5,79 +5,40 @@ import '../models/camera_node.dart';
 import 'dart:typed_data';
 
 class ESP32Service {
-  final String gadgetIP; // ESP32-S3 IP address
-  final StreamController<List<CameraNode>> _nodesController = 
-      StreamController<List<CameraNode>>.broadcast();
+  final String baseUrl;
+  final Map<String, StreamController<Uint8List>> _imageStreams = {};
 
-  ESP32Service(this.gadgetIP);
+  ESP32Service(this.baseUrl);
 
-  Stream<List<CameraNode>> get nodesStream => _nodesController.stream;
-
-  // Get list of connected camera nodes from ESP32-S3
-  Future<List<CameraNode>> getConnectedNodes() async {
-    try {
-      final response = await http.get(
-        Uri.parse('http://$gadgetIP/nodes'),
-        headers: {'Accept': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        final List<dynamic> nodesJson = json.decode(response.body);
-        final nodes = nodesJson
-            .map((node) => CameraNode.fromJson(node))
-            .toList();
-        _nodesController.add(nodes);
-        return nodes;
-      } else {
-        print('Failed to get nodes: ${response.statusCode}');
-        return [];
-      }
-    } catch (e) {
-      print('Error getting nodes: $e');
-      return [];
+  Stream<Uint8List> getImageStream(String cameraId) {
+    if (!_imageStreams.containsKey(cameraId)) {
+      _imageStreams[cameraId] = StreamController<Uint8List>.broadcast();
+      _startPolling(cameraId);
     }
+    return _imageStreams[cameraId]!.stream;
   }
 
-  // Get latest image from a specific node
-  Future<Uint8List?> getNodeImage(String nodeId) async {
-    try {
-      final response = await http.get(
-        Uri.parse('http://$gadgetIP/node/$nodeId/image'),
-        headers: {'Accept': 'image/jpeg'},
-      );
-
-      if (response.statusCode == 200) {
-        return response.bodyBytes;
-      } else {
-        print('Failed to get image: ${response.statusCode}');
-        return null;
-      }
-    } catch (e) {
-      print('Error getting image: $e');
-      return null;
-    }
-  }
-
-  // Listen for alerts from ESP32-S3
-  Stream<Map<String, dynamic>> listenForAlerts() async* {
+  void _startPolling(String cameraId) async {
     while (true) {
       try {
         final response = await http.get(
-          Uri.parse('http://$gadgetIP/alerts'),
-          headers: {'Accept': 'application/json'},
+          Uri.parse('$baseUrl/latest-image?camera_id=$cameraId'),
+          headers: {'Accept': 'image/jpeg'},
         );
 
         if (response.statusCode == 200) {
-          yield json.decode(response.body);
+          _imageStreams[cameraId]?.add(response.bodyBytes);
         }
       } catch (e) {
-        print('Error listening for alerts: $e');
+        print('Error polling image: $e');
       }
-      await Future.delayed(const Duration(seconds: 1));
+      await Future.delayed(const Duration(milliseconds: 100));
     }
   }
 
   void dispose() {
-    _nodesController.close();
+    for (var controller in _imageStreams.values) {
+      controller.close();
+    }
   }
 } 
