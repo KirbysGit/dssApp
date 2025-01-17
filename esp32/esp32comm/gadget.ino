@@ -2,6 +2,7 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
+#include <map>
 
 const char* WIFI_SSID = "RussellH203";
 const char* WIFI_PASS = "Knights_H203!";
@@ -15,7 +16,9 @@ struct CameraBuffer {
   unsigned long timestamp;
 };
 
-std::map<String, CameraBuffer> cameraBuffers;
+// Use String as key type for Arduino compatibility
+typedef std::map<String, CameraBuffer> CameraBufferMap;
+CameraBufferMap cameraBuffers;
 
 void handleImageUpload(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
   String cameraId = request->header("Camera-ID");
@@ -23,10 +26,11 @@ void handleImageUpload(AsyncWebServerRequest *request, uint8_t *data, size_t len
   Serial.printf("Receiving image: %d bytes (index: %d, total: %d)\n", len, index, total);
   Serial.printf("Free PSRAM: %d bytes\n", ESP.getFreePsram());
   
-  if (cameraBuffers.find(cameraId) != cameraBuffers.end()) {
+  CameraBufferMap::iterator it = cameraBuffers.find(cameraId);
+  if (it != cameraBuffers.end()) {
     Serial.println("Freeing old buffer");
-    free(cameraBuffers[cameraId].data);
-    cameraBuffers.erase(cameraId);
+    free(it->second.data);
+    cameraBuffers.erase(it);
   }
 
   if (index == 0) { // First chunk
@@ -34,18 +38,22 @@ void handleImageUpload(AsyncWebServerRequest *request, uint8_t *data, size_t len
     if (newBuffer) {
       Serial.println("Buffer allocated successfully");
       memcpy(newBuffer, data, len);
-      cameraBuffers[cameraId] = {
+      CameraBuffer buf = {
         .data = newBuffer,
         .size = total,
         .timestamp = millis()
       };
+      cameraBuffers[cameraId] = buf;
     } else {
       Serial.println("Failed to allocate buffer!");
       request->send(507, "text/plain", "Insufficient storage");
       return;
     }
-  } else if (cameraBuffers.find(cameraId) != cameraBuffers.end()) {
-    memcpy(cameraBuffers[cameraId].data + index, data, len);
+  } else {
+    it = cameraBuffers.find(cameraId);
+    if (it != cameraBuffers.end()) {
+      memcpy(it->second.data + index, data, len);
+    }
   }
   
   if (index + len == total) {
@@ -77,6 +85,8 @@ void setup() {
     Serial.print(".");
   }
   Serial.println("\nWiFi connected");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 
   server.on(
     "/image_upload",
@@ -88,12 +98,13 @@ void setup() {
 
   server.on("/latest-image", HTTP_GET, [](AsyncWebServerRequest *request) {
     String cameraId = request->arg("camera_id");
-    if (cameraBuffers.find(cameraId) != cameraBuffers.end()) {
+    CameraBufferMap::iterator it = cameraBuffers.find(cameraId);
+    if (it != cameraBuffers.end()) {
       AsyncWebServerResponse *response = request->beginResponse_P(
         200,
         "image/jpeg",
-        cameraBuffers[cameraId].data,
-        cameraBuffers[cameraId].size
+        it->second.data,
+        it->second.size
       );
       request->send(response);
     } else {
