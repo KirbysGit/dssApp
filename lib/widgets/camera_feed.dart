@@ -18,7 +18,7 @@ class CameraFeed extends StatefulWidget {
 }
 
 class _CameraFeedState extends State<CameraFeed> {
-  final CameraService _cameraService = CameraService();
+  final CameraService _cameraService = CameraService(baseUrl: 'http://localhost:8080');
   Timer? _timer;
   Uint8List? _currentImage;
 
