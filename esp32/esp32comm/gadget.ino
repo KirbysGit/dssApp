@@ -42,15 +42,28 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Starting...");
   
+  WiFi.mode(WIFI_STA); // Explicitly set station mode
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
+  
+  unsigned long startAttemptTime = millis();
+  
+  while (WiFi.status() != WL_CONNECTED && 
+         millis() - startAttemptTime < 10000) {  // 10 second timeout
     delay(500);
     Serial.print(".");
   }
   
-  Serial.println("\nWiFi connected");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected!");
+    Serial.print("IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("Subnet: ");
+    Serial.println(WiFi.subnetMask());
+    Serial.print("Gateway: ");
+    Serial.println(WiFi.gatewayIP());
+  } else {
+    Serial.println("\nConnection failed!");
+  }
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "ESP32-S3 Server Running");
