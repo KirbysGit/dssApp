@@ -3,34 +3,22 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-const char* WIFI_SSID = "RussellH203";
-const char* WIFI_PASS = "Knights_H203!";
-const char* GADGET_URL = "http://192.168.1.120/image_upload";
+const char* WIFI_SSID = "mi telefono";
+const char* WIFI_PASS = "password";
+const char* GADGET_URL = "http://172.20.10.8/image_upload";
 
+WebServer server(80);
 static auto hiRes = esp32cam::Resolution::find(800, 600);
 
-void captureAndSendImage() {
+void handleCapture() {
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Camera capture failed");
+    server.send(500, "text/plain", "Camera capture failed");
     return;
   }
 
-  HTTPClient http;
-  http.begin(GADGET_URL);
-  http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("Camera-ID", "CAM1");  // Unique ID for each camera
-
-  int httpCode = http.POST(fb->buf, fb->len);
-  
-  if (httpCode == 200) {
-    Serial.println("Image sent successfully");
-  } else {
-    Serial.printf("Image send failed, code: %d\n", httpCode);
-  }
-
+  server.send_P(200, "image/jpeg", (const char *)fb->buf, fb->len);
   esp_camera_fb_return(fb);
-  http.end();
 }
 
 void setup() {
@@ -59,9 +47,14 @@ void setup() {
     Serial.print(".");
   }
   Serial.println("\nWiFi connected");
+  Serial.print("Camera Ready! Use 'http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/capture' to take a photo");
+
+  server.on("/capture", handleCapture);
+  server.begin();
 }
 
 void loop() {
-  captureAndSendImage();
-  delay(5000);  // Adjust timing as needed
+  server.handleClient();
 }

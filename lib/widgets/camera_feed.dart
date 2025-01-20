@@ -18,7 +18,7 @@ class CameraFeed extends StatefulWidget {
 }
 
 class _CameraFeedState extends State<CameraFeed> {
-  final CameraService _cameraService = CameraService(baseUrl: 'http://localhost:8080');
+  final _cameraService = CameraService();
   Timer? _timer;
   Uint8List? _currentImage;
 
@@ -30,7 +30,7 @@ class _CameraFeedState extends State<CameraFeed> {
 
   void _startImageFetch() {
     _timer = Timer.periodic(widget.refreshRate, (timer) async {
-      final image = await _cameraService.getImageFromCamera(widget.ipAddress);
+      final image = await _cameraService.getLatestImage();
       if (image != null && mounted) {
         setState(() {
           _currentImage = image;
@@ -54,7 +54,7 @@ class _CameraFeedState extends State<CameraFeed> {
     return Image.memory(
       _currentImage!,
       fit: BoxFit.contain,
-      gaplessPlayback: true, // Prevents flickering
+      gaplessPlayback: true,
     );
   }
 } 

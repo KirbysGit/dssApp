@@ -2,24 +2,17 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 class CameraService {
-  final String baseUrl;
+  static const String baseUrl = 'http://172.20.10.8'; // Make sure this is correct
 
-  CameraService({required this.baseUrl}); // e.g., "http://172.20.10.8"
-
-  Future<Uint8List?> getLatestImage(String cameraId) async {
+  Future<Uint8List?> getLatestImage() async {
     try {
-      final url = '$baseUrl/latest-image?camera_id=$cameraId';
-      print('Requesting image from: $url'); // Debug URL
-
-      final response = await http.get(Uri.parse(url));
-      print('Response status: ${response.statusCode}'); // Debug response
-
+      final response = await http.get(Uri.parse('$baseUrl/latest-image'));
+      print('Requesting from: $baseUrl/latest-image'); // This will help us debug
+      
       if (response.statusCode == 200) {
         return response.bodyBytes;
-      } else {
-        print('Failed to get image: ${response.statusCode}');
-        return null;
       }
+      return null;
     } catch (e) {
       print('Error getting image: $e');
       return null;
@@ -35,6 +28,21 @@ class CameraService {
       return null;
     } catch (e) {
       print('Error fetching camera image: $e');
+      return null;
+    }
+  }
+
+  Future<Uint8List?> captureImage() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/capture'));
+      print('Capturing image from: $baseUrl/capture');
+      
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+      return null;
+    } catch (e) {
+      print('Error capturing image: $e');
       return null;
     }
   }
