@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../widgets/connection_status.dart';
 import '../widgets/security_card.dart';
 import '../widgets/dev_menu.dart';
+import '../theme/app_theme.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({Key? key}) : super(key: key);
@@ -9,12 +10,19 @@ class DashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.mistGray,
       appBar: AppBar(
-        title: const Text('SecureScape'),
+        title: Row(
+          children: [
+            Image.asset('assets/images/logo.png', height: 32),
+            const SizedBox(width: 12),
+            const Text('SecureScape'),
+          ],
+        ),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, color: AppTheme.pineGreen),
             onPressed: () {
               // TODO: Implement refresh
             },
@@ -29,23 +37,52 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 24),
           SecurityCard(
             title: 'System Status',
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('System Armed'),
-                  subtitle: const Text('Tap to arm/disarm the system'),
-                  value: true, // TODO: Connect to provider
-                  onChanged: (value) {
-                    // TODO: Implement arming logic
-                  },
-                ),
-                const Divider(),
-                const ListTile(
-                  leading: Icon(Icons.security),
-                  title: Text('All Nodes Active'),
-                  subtitle: Text('6 nodes connected'),
-                ),
-              ],
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppTheme.pineGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    title: Text(
+                      'System Armed',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.deepForestGreen,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Tap to arm/disarm the system',
+                      style: TextStyle(
+                        color: AppTheme.deepForestGreen.withOpacity(0.7),
+                      ),
+                    ),
+                    value: true, // TODO: Connect to provider
+                    activeColor: AppTheme.pineGreen,
+                    onChanged: (value) {
+                      // TODO: Implement arming logic
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(Icons.security, color: AppTheme.pineGreen),
+                    title: Text(
+                      'All Nodes Active',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.deepForestGreen,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '6 nodes connected',
+                      style: TextStyle(
+                        color: AppTheme.deepForestGreen.withOpacity(0.7),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -91,18 +128,43 @@ class DashboardPage extends StatelessWidget {
             child: Column(
               children: List.generate(
                 3,
-                (index) => ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.notification_important),
+                (index) => Container(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.pineGreen.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  title: Text('Motion Detected - Node ${index + 1}'),
-                  subtitle: Text('${DateTime.now().subtract(
-                    Duration(minutes: index * 5),
-                  ).toString().split('.')[0]}'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // TODO: Navigate to detail view
-                  },
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: AppTheme.pineGreen.withOpacity(0.2),
+                      child: Icon(
+                        Icons.notification_important,
+                        color: AppTheme.pineGreen,
+                      ),
+                    ),
+                    title: Text(
+                      'Motion Detected - Node ${index + 1}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.deepForestGreen,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${DateTime.now().subtract(
+                        Duration(minutes: index * 5),
+                      ).toString().split('.')[0]}',
+                      style: TextStyle(
+                        color: AppTheme.deepForestGreen.withOpacity(0.7),
+                      ),
+                    ),
+                    trailing: Icon(
+                      Icons.chevron_right,
+                      color: AppTheme.pineGreen,
+                    ),
+                    onTap: () {
+                      // TODO: Navigate to detail view
+                    },
+                  ),
                 ),
               ),
             ),
@@ -134,6 +196,11 @@ class _QuickActionButton extends StatelessWidget {
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 12),
+          backgroundColor: AppTheme.pineGreen,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
     );

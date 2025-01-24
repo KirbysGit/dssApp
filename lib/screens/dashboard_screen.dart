@@ -5,6 +5,7 @@ import '../widgets/device_grid.dart';
 import '../widgets/status_header.dart';
 import '../widgets/alert_list.dart';
 import '../screens/camera_screen.dart';
+import '../theme/app_theme.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -27,17 +28,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.mistGray,
       appBar: AppBar(
-        title: const Text('Security Dashboard'),
+        title: Row(
+          children: [
+            Icon(Icons.security, color: AppTheme.pineGreen, size: 32),
+            const SizedBox(width: 12),
+            const Text('Security Dashboard'),
+          ],
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add),
+            icon: Icon(Icons.add, color: AppTheme.pineGreen),
             onPressed: () {
               // TODO: Implement add device dialog
             },
           ),
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: Icon(Icons.settings, color: AppTheme.pineGreen),
             onPressed: () {
               // TODO: Navigate to settings
             },
@@ -49,6 +57,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           await Provider.of<SecurityProvider>(context, listen: false)
               .refreshDevices();
         },
+        color: AppTheme.pineGreen,
+        backgroundColor: Colors.white,
         child: CustomScrollView(
           slivers: [
             const SliverToBoxAdapter(
@@ -59,11 +69,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
                   children: [
-                    const Text(
+                    Text(
                       'Devices',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
+                        color: AppTheme.deepForestGreen,
                       ),
                     ),
                     const Spacer(),
@@ -71,6 +82,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onPressed: () {
                         // TODO: Navigate to devices screen
                       },
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.pineGreen,
+                      ),
                       child: const Text('See All'),
                     ),
                   ],
@@ -80,14 +94,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SliverToBoxAdapter(
               child: DeviceGrid(),
             ),
-            const SliverToBoxAdapter(
+            SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(16.0),
                 child: Text(
                   'Recent Alerts',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
+                    color: AppTheme.deepForestGreen,
                   ),
                 ),
               ),
@@ -105,17 +120,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _selectedIndex = index;
           });
         },
-        destinations: const [
+        backgroundColor: Colors.white,
+        indicatorColor: AppTheme.pineGreen.withOpacity(0.2),
+        destinations: [
           NavigationDestination(
-            icon: Icon(Icons.dashboard),
+            icon: Icon(
+              Icons.dashboard,
+              color: _selectedIndex == 0
+                  ? AppTheme.pineGreen
+                  : AppTheme.deepForestGreen.withOpacity(0.7),
+            ),
             label: 'Dashboard',
           ),
           NavigationDestination(
-            icon: Icon(Icons.videocam),
+            icon: Icon(
+              Icons.videocam,
+              color: _selectedIndex == 1
+                  ? AppTheme.pineGreen
+                  : AppTheme.deepForestGreen.withOpacity(0.7),
+            ),
             label: 'Cameras',
           ),
           NavigationDestination(
-            icon: Icon(Icons.notifications),
+            icon: Icon(
+              Icons.notifications,
+              color: _selectedIndex == 2
+                  ? AppTheme.pineGreen
+                  : AppTheme.deepForestGreen.withOpacity(0.7),
+            ),
             label: 'Alerts',
           ),
         ],
@@ -129,7 +161,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           );
         },
-        child: const Icon(Icons.camera_alt),
+        backgroundColor: AppTheme.pineGreen,
+        child: const Icon(Icons.camera_alt, color: Colors.white),
       ),
     );
   }

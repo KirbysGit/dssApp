@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/security_card.dart';
+import '../theme/app_theme.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({Key? key}) : super(key: key);
@@ -16,88 +17,173 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.mistGray,
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Row(
+          children: [
+            Icon(Icons.security, color: AppTheme.pineGreen, size: 32),
+            const SizedBox(width: 12),
+            const Text('Settings'),
+          ],
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           SecurityCard(
             title: 'Notification Settings',
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('Push Notifications'),
-                  subtitle: const Text('Receive alerts on your device'),
-                  value: _notificationsEnabled,
-                  onChanged: (value) => setState(() => _notificationsEnabled = value),
-                ),
-                SwitchListTile(
-                  title: const Text('Sound Alerts'),
-                  subtitle: const Text('Play sound for important alerts'),
-                  value: _soundEnabled,
-                  onChanged: (value) => setState(() => _soundEnabled = value),
-                ),
-              ],
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppTheme.pineGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  _buildSwitchTile(
+                    'Push Notifications',
+                    'Receive alerts on your device',
+                    _notificationsEnabled,
+                    (value) => setState(() => _notificationsEnabled = value),
+                  ),
+                  _buildSwitchTile(
+                    'Sound Alerts',
+                    'Play sound for important alerts',
+                    _soundEnabled,
+                    (value) => setState(() => _soundEnabled = value),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
           SecurityCard(
             title: 'System Settings',
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('Auto-Arm System'),
-                  subtitle: const Text('Automatically arm at scheduled times'),
-                  value: _autoArm,
-                  onChanged: (value) => setState(() => _autoArm = value),
-                ),
-                ListTile(
-                  title: const Text('Camera Settings'),
-                  subtitle: const Text('Configure resolution and refresh rate'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showCameraSettings(context),
-                ),
-                ListTile(
-                  title: const Text('Network Settings'),
-                  subtitle: const Text('Configure WiFi and connection settings'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showNetworkSettings(context),
-                ),
-              ],
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppTheme.pineGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  _buildSwitchTile(
+                    'Auto-Arm System',
+                    'Automatically arm at scheduled times',
+                    _autoArm,
+                    (value) => setState(() => _autoArm = value),
+                  ),
+                  _buildNavigationTile(
+                    'Camera Settings',
+                    'Configure resolution and refresh rate',
+                    Icons.camera_alt,
+                    () => _showCameraSettings(context),
+                  ),
+                  _buildNavigationTile(
+                    'Network Settings',
+                    'Configure WiFi and connection settings',
+                    Icons.wifi,
+                    () => _showNetworkSettings(context),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
           SecurityCard(
             title: 'Account',
-            child: Column(
-              children: [
-                ListTile(
-                  title: const Text('Device Information'),
-                  subtitle: const Text('View system details and status'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showDeviceInfo(context),
-                ),
-                ListTile(
-                  title: const Text('About'),
-                  subtitle: const Text('Version 1.0.0'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showAboutDialog(context),
-                ),
-              ],
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppTheme.pineGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  _buildNavigationTile(
+                    'Device Information',
+                    'View system details and status',
+                    Icons.info,
+                    () => _showDeviceInfo(context),
+                  ),
+                  _buildNavigationTile(
+                    'About',
+                    'Version 1.0.0',
+                    Icons.help,
+                    () => _showAboutDialog(context),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 24),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: () => _resetSystem(context),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            child: const Text('Reset System'),
+            icon: const Icon(Icons.warning),
+            label: const Text('Reset System'),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSwitchTile(
+    String title,
+    String subtitle,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
+    return SwitchListTile(
+      title: Text(
+        title,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          color: AppTheme.deepForestGreen,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(
+          color: AppTheme.deepForestGreen.withOpacity(0.7),
+        ),
+      ),
+      value: value,
+      activeColor: AppTheme.pineGreen,
+      onChanged: onChanged,
+    );
+  }
+
+  Widget _buildNavigationTile(
+    String title,
+    String subtitle,
+    IconData icon,
+    VoidCallback onTap,
+  ) {
+    return ListTile(
+      leading: Icon(icon, color: AppTheme.pineGreen),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          color: AppTheme.deepForestGreen,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(
+          color: AppTheme.deepForestGreen.withOpacity(0.7),
+        ),
+      ),
+      trailing: Icon(
+        Icons.chevron_right,
+        color: AppTheme.pineGreen,
+      ),
+      onTap: onTap,
     );
   }
 
@@ -118,9 +204,12 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       applicationName: 'SecureScape',
       applicationVersion: '1.0.0',
-      applicationIcon: const FlutterLogo(size: 64),
-      children: const [
-        Text('A modern security system for your home.'),
+      applicationIcon: Image.asset('assets/images/logo.png', height: 64),
+      children: [
+        Text(
+          'A modern security system for your home.',
+          style: TextStyle(color: AppTheme.deepForestGreen),
+        ),
       ],
     );
   }
@@ -129,14 +218,24 @@ class _SettingsPageState extends State<SettingsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reset System'),
-        content: const Text(
+        title: Text(
+          'Reset System',
+          style: TextStyle(
+            color: AppTheme.deepForestGreen,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
           'Are you sure you want to reset all settings to default? This action cannot be undone.',
+          style: TextStyle(color: AppTheme.deepForestGreen),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppTheme.deepForestGreen),
+            ),
           ),
           ElevatedButton(
             onPressed: () {

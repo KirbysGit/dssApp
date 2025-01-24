@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../widgets/security_card.dart';
+import '../theme/app_theme.dart';
 
 class AlertsPage extends StatelessWidget {
   const AlertsPage({Key? key}) : super(key: key);
@@ -7,8 +8,15 @@ class AlertsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.mistGray,
       appBar: AppBar(
-        title: const Text('Alerts & Notifications'),
+        title: Row(
+          children: [
+            Icon(Icons.security, color: AppTheme.pineGreen, size: 32),
+            const SizedBox(width: 12),
+            const Text('Alerts & Notifications'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),
@@ -30,6 +38,7 @@ class AlertsPage extends StatelessWidget {
                   icon: _getAlertIcon(index),
                   time: DateTime.now().subtract(Duration(hours: index)),
                   severity: _getAlertSeverity(index),
+                  context: context,
                 ),
               ),
             ),
@@ -37,14 +46,18 @@ class AlertsPage extends StatelessWidget {
           const SizedBox(height: 16),
           SecurityCard(
             title: 'Alert Statistics',
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 16.0),
+              decoration: BoxDecoration(
+                color: AppTheme.pineGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _buildStatistic('Today', '5'),
-                  _buildStatistic('This Week', '23'),
-                  _buildStatistic('This Month', '64'),
+                  _buildStatistic(context, 'Today', '5'),
+                  _buildStatistic(context, 'This Week', '23'),
+                  _buildStatistic(context, 'This Month', '64'),
                 ],
               ),
             ),
@@ -60,48 +73,75 @@ class AlertsPage extends StatelessWidget {
     required IconData icon,
     required DateTime time,
     required Color severity,
+    required BuildContext context,
   }) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: severity.withOpacity(0.1),
-        child: Icon(icon, color: severity),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: severity.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
       ),
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            '${time.hour}:${time.minute.toString().padLeft(2, '0')}',
-            style: const TextStyle(fontSize: 12),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: severity.withOpacity(0.2),
+          child: Icon(icon, color: severity),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppTheme.deepForestGreen,
           ),
-          Text(
-            '${time.day}/${time.month}',
-            style: const TextStyle(fontSize: 12),
+        ),
+        subtitle: Text(
+          subtitle,
+          style: TextStyle(
+            color: AppTheme.deepForestGreen.withOpacity(0.7),
           ),
-        ],
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '${time.hour}:${time.minute.toString().padLeft(2, '0')}',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppTheme.deepForestGreen,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              '${time.day}/${time.month}',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppTheme.deepForestGreen.withOpacity(0.7),
+              ),
+            ),
+          ],
+        ),
+        onTap: () {
+          // TODO: Navigate to alert detail
+        },
       ),
-      onTap: () {
-        // TODO: Navigate to alert detail
-      },
     );
   }
 
-  Widget _buildStatistic(String label, String value) {
+  Widget _buildStatistic(BuildContext context, String label, String value) {
     return Column(
       children: [
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
+            color: AppTheme.deepForestGreen,
           ),
         ),
         Text(
           label,
-          style: const TextStyle(
-            color: Colors.grey,
+          style: TextStyle(
+            color: AppTheme.deepForestGreen.withOpacity(0.7),
           ),
         ),
       ],
@@ -143,51 +183,64 @@ class AlertsPage extends StatelessWidget {
 
   Color _getAlertSeverity(int index) {
     final colors = [
-      Colors.red,
-      Colors.orange,
-      Colors.yellow,
-      Colors.red,
-      Colors.green,
+      AppTheme.pineGreen,
+      AppTheme.accentGold,
+      AppTheme.accentGold,
+      AppTheme.deepForestGreen,
+      AppTheme.mossGreen,
     ];
     return colors[index % colors.length];
   }
 
-  static void _showFilterDialog(BuildContext context) {
+  void _showFilterDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Filter Alerts'),
+        title: Text(
+          'Filter Alerts',
+          style: TextStyle(
+            color: AppTheme.deepForestGreen,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CheckboxListTile(
-              title: const Text('Motion Detection'),
-              value: true,
-              onChanged: (value) {},
-            ),
-            CheckboxListTile(
-              title: const Text('System Events'),
-              value: true,
-              onChanged: (value) {},
-            ),
-            CheckboxListTile(
-              title: const Text('Camera Status'),
-              value: true,
-              onChanged: (value) {},
-            ),
+            _buildFilterOption(context, 'Motion Detection'),
+            _buildFilterOption(context, 'System Events'),
+            _buildFilterOption(context, 'Camera Status'),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppTheme.deepForestGreen),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.pineGreen,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Apply'),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildFilterOption(BuildContext context, String title) {
+    return CheckboxListTile(
+      title: Text(
+        title,
+        style: TextStyle(color: AppTheme.deepForestGreen),
+      ),
+      value: true,
+      activeColor: AppTheme.pineGreen,
+      onChanged: (value) {},
     );
   }
 } 
