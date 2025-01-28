@@ -162,6 +162,11 @@ void personDetected()
   
   // Send notification to Node's to sound alarm.
   // Send notification to mobile app.
+
+  // Add HTTP endpoint for the mobile app to check
+  server.on("/person-status", HTTP_GET, []() {
+      server.send(200, "application/json", "{\"personDetected\": true}");
+  });
 }
 
 void setup()
