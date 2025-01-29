@@ -88,104 +88,108 @@ bool personDetected = false;
 // Handle incoming image POST request
 void handleImageUpload() {
   Serial.println("Receiving image upload request...");
-
-  // Debug print all headers
-  Serial.println("Headers received:");
-  for (int i = 0; i < server.headers(); i++) {
-    String headerName = server.headerName(i);
-    String headerValue = server.header(i);
-    Serial.printf("%s: %s\n", headerName.c_str(), headerValue.c_str());
-  }
-
-  // Get the raw POST data
   WiFiClient client = server.client();
-  
-  // First, read the headers until we find the end of headers (marked by an empty line)
-  String line;
-  int contentLength = -1;
-  
-  while (line = client.readStringUntil('\n')) {
-    line.trim();
-    Serial.printf("Header line: '%s'\n", line.c_str());
-    
-    if (line.length() == 0) {
-      break; // End of headers
-    }
-    
-    // Look for Content-Length header
-    if (line.startsWith("Content-Length: ")) {
-      contentLength = line.substring(16).toInt();
-      Serial.printf("Found Content-Length: %d\n", contentLength);
-    }
-  }
 
-  if (contentLength <= 0) {
-    Serial.println("No valid Content-Length found");
-    server.send(400, "text/plain", "Missing or invalid Content-Length header");
+  String contentType = server.header("Content-Type");
+  String contentLength = server.header("Content-Length");
+
+  Serial.println("Headers received:");
+  Serial.println("Content-Type: " + contentType);
+  Serial.println("Content-Length: " + contentLength);
+
+  if (!contentType.startsWith("multipart/form-data")) {
+    Serial.println("Invalid content type");
+    server.send(400, "text/plain", "Invalid content type");
     return;
   }
 
+  int contentLen = contentLength.toInt();
+  if (contentLen <= 0) {
+    Serial.println("Invalid content length");
+    server.send(400, "text/plain", "Invalid content length");
+    return;
+  }
+
+  // Find the boundary
+  int boundaryPos = contentType.indexOf("boundary=");
+  if (boundaryPos == -1) {
+    Serial.println("No boundary found");
+    server.send(400, "text/plain", "No boundary found");
+    return;
+  }
+  String boundary = contentType.substring(boundaryPos + 9);
+  Serial.println("Boundary: " + boundary);
+
   // Allocate buffer for the image
-  uint8_t* buffer = new uint8_t[contentLength];
+  uint8_t* buffer = new uint8_t[contentLen];
   if (!buffer) {
     Serial.println("Failed to allocate memory");
     server.send(500, "text/plain", "Server memory error");
     return;
   }
 
-  // Read the image data
+  // Read the data
   size_t receivedLength = 0;
   unsigned long timeout = millis() + 10000; // 10 second timeout
 
-  while (receivedLength < contentLength && millis() < timeout) {
+  while (receivedLength < contentLen && millis() < timeout) {
     if (client.available()) {
       buffer[receivedLength] = client.read();
       receivedLength++;
       
-      // Print progress every 1KB
       if (receivedLength % 1024 == 0) {
-        Serial.printf("Received %d bytes of %d\n", receivedLength, contentLength);
+        Serial.printf("Received %d bytes of %d\n", receivedLength, contentLen);
       }
     }
     yield();
   }
 
-  Serial.printf("Actually received: %d bytes\n", receivedLength);
+  Serial.printf("Received total: %d bytes\n", receivedLength);
 
-  if (receivedLength == contentLength) {
-    // Print first bytes for debugging
-    Serial.print("First 32 bytes: ");
-    for (int i = 0; i < min(32, (int)receivedLength); i++) {
-      Serial.printf("%02X ", buffer[i]);
+  // Find the start of JPEG data (FF D8 FF)
+  int jpegStart = -1;
+  for (size_t i = 0; i < receivedLength - 3; i++) {
+    if (buffer[i] == 0xFF && buffer[i + 1] == 0xD8 && buffer[i + 2] == 0xFF) {
+      jpegStart = i;
+      break;
     }
-    Serial.println();
+  }
 
+  // Find the end of JPEG data (FF D9)
+  int jpegEnd = -1;
+  for (size_t i = receivedLength - 2; i > 0; i--) {
+    if (buffer[i] == 0xFF && buffer[i + 1] == 0xD9) {
+      jpegEnd = i + 2;
+      break;
+    }
+  }
+
+  if (jpegStart != -1 && jpegEnd != -1) {
+    size_t imageSize = jpegEnd - jpegStart;
+    
     // Store the image
     if (lastImage != nullptr) {
       delete[] lastImage;
-      lastImage = nullptr;
     }
-
-    lastImage = buffer;
-    lastImageSize = receivedLength;
-
-    // Verify JPEG header
-    if (lastImageSize >= 3 && lastImage[0] == 0xFF && lastImage[1] == 0xD8 && lastImage[2] == 0xFF) {
+    
+    lastImage = new uint8_t[imageSize];
+    if (lastImage != nullptr) {
+      memcpy(lastImage, buffer + jpegStart, imageSize);
+      lastImageSize = imageSize;
       personDetected = true;
-      Serial.println("Valid JPEG header found");
+      
+      Serial.printf("Successfully extracted JPEG image: %d bytes\n", imageSize);
       server.send(200, "text/plain", "Image received");
     } else {
-      Serial.println("Invalid JPEG header");
-      delete[] lastImage;
-      lastImage = nullptr;
-      lastImageSize = 0;
-      server.send(400, "text/plain", "Invalid JPEG format");
+      Serial.println("Failed to allocate memory for image");
+      server.send(500, "text/plain", "Server memory error");
     }
   } else {
-    delete[] buffer;
-    Serial.printf("Incomplete data: received %d of %d bytes\n", receivedLength, contentLength);
-    server.send(400, "text/plain", "Incomplete data received");
+    Serial.println("No valid JPEG data found");
+    server.send(400, "text/plain", "No valid JPEG data found");
   }
+
+  delete[] buffer;
 }
 
 // Modified to handle raw binary data

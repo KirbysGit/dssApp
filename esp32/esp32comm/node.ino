@@ -31,8 +31,8 @@
 
 // PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
 // MUST USE 2.4GHz wifi band.
-const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
-const char* WIFI_PASS = "goodlife";
+const char* WIFI_SSID = "mi telefono";
+const char* WIFI_PASS = "password";
  
 // Server on port 80.
 // WebServer server(80);
@@ -98,47 +98,76 @@ void captureAndSendImage()
     Serial.printf("%02X ", imageData[i]);
   }
   Serial.println();
-  
-  // Create HTTP client
-  HTTPClient http;
-  String uploadEndpoint = "http://172.20.10.8/image_upload";
-  Serial.print("Sending image to: ");
-  Serial.println(uploadEndpoint);
-  
+
+  // Create WiFi client
   WiFiClient client;
-  http.begin(client, uploadEndpoint);  // Use WiFiClient explicitly
+  
+  Serial.println("Connecting to server...");
+  if (!client.connect("172.20.10.8", 80)) {
+    Serial.println("Connection failed");
+    esp_camera_fb_return(fb);
+    return;
+  }
 
-  // Set headers before sending
-  http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("Content-Length", String(imageSize));
-  http.addHeader("Connection", "close");
-  http.addHeader("Accept", "*/*");
+  // Prepare HTTP POST request
+  String head = "--DSS\r\nContent-Disposition: form-data; name=\"imageFile\"; filename=\"esp32cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
+  String tail = "\r\n--DSS--\r\n";
 
-  // Debug print headers
-  Serial.println("Sending with headers:");
-  Serial.println("Content-Type: image/jpeg");
-  Serial.println("Content-Length: " + String(imageSize));
+  uint32_t imageLen = imageSize;
+  uint32_t extraLen = head.length() + tail.length();
+  uint32_t totalLen = imageLen + extraLen;
 
-  // Send image data in the request body
-  int httpResponseCode = http.POST(imageData, imageSize);
+  // Send HTTP POST request
+  client.println("POST /image_upload HTTP/1.1");
+  client.println("Host: 172.20.10.8");
+  client.println("Content-Length: " + String(totalLen));
+  client.println("Content-Type: multipart/form-data; boundary=DSS");
+  client.println("Connection: close");
+  client.println();
+  
+  // Send the request body
+  client.print(head);
 
-  if (httpResponseCode > 0)
-  {
-    String response = http.getString();
-    Serial.println("HTTP Response Code: " + String(httpResponseCode));
-    Serial.println("Response: " + response);
-  } 
-  else 
-  {
-    Serial.print("Failed to send image! Error: ");
-    Serial.println(http.errorToString(httpResponseCode));
+  // Send image data in chunks
+  const size_t bufSize = 1024;
+  size_t sentBytes = 0;
+  
+  while (sentBytes < imageLen) {
+    size_t remainingBytes = imageLen - sentBytes;
+    size_t chunkSize = min((size_t)bufSize, remainingBytes);
+    
+    client.write(imageData + sentBytes, chunkSize);
+    sentBytes += chunkSize;
+    
+    // Print progress
+    Serial.printf("Sent %d bytes of %d\n", sentBytes, imageLen);
+  }
+  
+  client.print(tail);
+  
+  // Wait for server response
+  unsigned long timeout = millis();
+  while (client.available() == 0) {
+    if (millis() - timeout > 5000) {
+      Serial.println("Client Timeout!");
+      client.stop();
+      esp_camera_fb_return(fb);
+      return;
+    }
+  }
+
+  // Read server response
+  Serial.println("Server Response:");
+  while (client.available()) {
+    String line = client.readStringUntil('\r');
+    Serial.println(line);
   }
 
   // Clean up
-  http.end();
+  client.stop();
   esp_camera_fb_return(fb);
   
-  // Small delay to ensure everything is cleaned up
+  Serial.println("Image sent successfully");
   delay(100);
 }
 
@@ -316,9 +345,6 @@ void  setup()
 
   // pinMode(PassiveIR_Pin, INPUT); // Setup PIR sensor
   // pinMode(Tamper_Pin, INPUT_PULLUP); // Setup Tampering pin.
-
-  // Wifi attempt tracker, ensure fast connection.
-  int attempts = 0;
 
   // Wait for wifi to connect.
   while (WiFi.status() != WL_CONNECTED && attempts < 30) 
