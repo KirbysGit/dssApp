@@ -41,8 +41,8 @@ const char* WIFI_PASS = "goodlife";
 // RESOLUTION
 // ----------
  
-// Low Resolution.
-static auto modelRes = esp32cam::Resolution::find(96, 96); 
+// Medium Resolution for better image quality while maintaining performance
+static auto modelRes = esp32cam::Resolution::find(640, 480);  // VGA resolution
 
 // ---------
 // CONSTANTS
@@ -93,6 +93,11 @@ void captureAndSendImage()
 
   // Debug print
   Serial.printf("Captured image size: %d bytes\n", imageSize);
+  Serial.print("First 32 bytes of image: ");
+  for (int i = 0; i < min(32, (int)imageSize); i++) {
+    Serial.printf("%02X ", imageData[i]);
+  }
+  Serial.println();
   
   // Create HTTP client
   HTTPClient http;
@@ -101,7 +106,8 @@ void captureAndSendImage()
   Serial.println(uploadEndpoint);
   
   http.begin(uploadEndpoint);
-  http.addHeader("Content-Type", "text/plain");
+  http.addHeader("Content-Type", "image/jpeg");  // Changed from text/plain to image/jpeg
+  http.addHeader("Content-Length", String(imageSize));
 
   // Send image data in the request body
   int httpResponseCode = http.POST(imageData, imageSize);

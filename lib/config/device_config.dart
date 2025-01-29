@@ -1,27 +1,27 @@
 // TODO: Replace these IPs with your actual device IPs
 class DeviceConfig {
-  // Main gadget server (NodeMCU)
-  static const String gadgetServerIP = '172.20.10.8';  // Your NodeMCU's actual IP
+  // The IP address of the gadget server (NodeMCU)
+  static const String gadgetServerIP = '172.20.10.8';  // Update this with your gadget's IP
   
-  // ESP32-CAM IP (will be obtained from gadget server)
-  static String? cameraIP;  // This will be set dynamically
+  // The IP address of the camera (ESP32-CAM)
+  static String? cameraIP;  // This will be set dynamically when obtained from the gadget server
   
   // Node MCU devices
   static const List<String> nodeIPs = [
     '172.20.10.8',  // Your gadget's IP
   ];
 
-  // Camera stream URL
+  // Get the camera stream URL
   static String getCameraStreamUrl() {
     if (cameraIP == null) {
-      throw Exception('Camera IP not yet obtained from gadget server');
+      throw Exception('Camera IP has not been set yet');
     }
-    return 'http://$cameraIP/stream';  // ESP32-CAM stream endpoint
+    return 'http://$cameraIP/stream';
   }
-
-  // Gadget server endpoints
+  
+  // Get the gadget server URL for obtaining camera IP
   static String getGadgetServerUrl() {
-    return 'http://$gadgetServerIP';  // Base URL for the gadget server
+    return 'http://$gadgetServerIP';
   }
 
   // Person detection status endpoint

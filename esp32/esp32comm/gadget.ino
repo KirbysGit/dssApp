@@ -26,6 +26,9 @@
 #include <ObjectDetection.h>
 #include <HTTPClient.h>
 
+// Add SPIFFS for file storage
+#include <SPIFFS.h>
+
 // PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
 // MUST USE 2.4GHz wifi band.
 const char* WIFI_SSID = "mi telefono";
@@ -73,31 +76,135 @@ const int LED = 21;
 //   // ... add other allowed IP addresses
 // };
 
+// Global variables for image handling
+uint8_t* lastImage = nullptr;
+size_t lastImageSize = 0;
+bool personDetected = false;
+
 // ----
 // CODE
 // ----
 
-// Handle incoming image POST request.
-void handleImageUpload() 
-{
+// Handle incoming image POST request
+void handleImageUpload() {
+  Serial.println("Receiving image upload request...");
+  
+  // Get the raw POST data size
+  size_t imageSize = server.arg("plain").length();
+  Serial.printf("Raw POST data size: %d bytes\n", imageSize);
+  
+  // Print content type and headers for debugging
+  Serial.printf("Content-Type: %s\n", server.header("Content-Type").c_str());
+  Serial.printf("Content-Length: %s\n", server.header("Content-Length").c_str());
+  
   if (server.hasArg("plain")) {
     String imageData = server.arg("plain");
-    size_t imageSize = imageData.length();
     
     Serial.printf("Received image size: %d bytes\n", imageSize);
-    
-    // For now, just acknowledge receipt
-    server.send(200, "text/plain", "Image received");
-    
-    // Trigger person detection status
-    handlePersonDetected();
+    Serial.print("First 32 bytes of data: ");
+    for (int i = 0; i < min(32, (int)imageSize); i++) {
+      Serial.printf("%02X ", (uint8_t)imageData[i]);
+    }
+    Serial.println();
+
+    // Store the image in memory
+    if (lastImage != nullptr) {
+      delete[] lastImage;
+      lastImage = nullptr;
+    }
+
+    // Allocate new memory and copy the image data
+    lastImage = new uint8_t[imageSize];
+    if (lastImage != nullptr) {
+      // Copy the raw bytes
+      memcpy(lastImage, imageData.c_str(), imageSize);
+      lastImageSize = imageSize;
+
+      // Print the actual bytes we stored
+      Serial.print("Stored image header bytes: ");
+      for (int i = 0; i < min(32, (int)lastImageSize); i++) {
+        Serial.printf("%02X ", lastImage[i]);
+      }
+      Serial.println();
+
+      // Verify JPEG header (FF D8 FF)
+      if (lastImage[0] == 0xFF && lastImage[1] == 0xD8 && lastImage[2] == 0xFF) {
+        personDetected = true;
+        Serial.println("Valid JPEG header found");
+        server.send(200, "text/plain", "Image received");
+      } else {
+        Serial.println("Invalid JPEG header");
+        Serial.printf("First three bytes: %02X %02X %02X\n", 
+          lastImage[0], lastImage[1], lastImage[2]);
+        delete[] lastImage;
+        lastImage = nullptr;
+        lastImageSize = 0;
+        server.send(400, "text/plain", "Invalid JPEG format");
+      }
+    } else {
+      Serial.println("Failed to allocate memory for image");
+      server.send(500, "text/plain", "Failed to store image");
+    }
   } else {
+    Serial.println("No image data in request");
     server.send(400, "text/plain", "No image data received");
   }
 }
 
+// Modified to handle raw binary data
+void handleGetLatestImage() {
+  if (lastImage != nullptr && lastImageSize > 0) {
+    Serial.printf("Serving image of size: %d bytes\n", lastImageSize);
+    Serial.print("First 32 bytes of image: ");
+    for (int i = 0; i < min(32, (int)lastImageSize); i++) {
+      Serial.printf("%02X ", lastImage[i]);
+    }
+    Serial.println();
+
+    // Set headers for binary data
+    server.sendHeader("Content-Type", "image/jpeg");
+    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "0");
+    
+    // Send the response in smaller chunks
+    const size_t CHUNK_SIZE = 512; // Reduced chunk size
+    size_t remaining = lastImageSize;
+    size_t offset = 0;
+    
+    server.setContentLength(lastImageSize);
+    server.send(200);
+    
+    while (remaining > 0) {
+      size_t chunk = min(CHUNK_SIZE, remaining);
+      server.sendContent((char*)(lastImage + offset), chunk);
+      remaining -= chunk;
+      offset += chunk;
+      
+      // Debug print for chunks
+      Serial.printf("Sent chunk: %d bytes, Remaining: %d bytes\n", chunk, remaining);
+      delay(1); // Small delay to prevent watchdog reset
+    }
+    
+    Serial.printf("Sent complete image: %d bytes\n", lastImageSize);
+  } else {
+    Serial.println("No image available to serve");
+    server.send(404, "text/plain", "No image available");
+  }
+}
+
+// Modified person status endpoint
 void handlePersonStatus() {
-  server.send(200, "application/json", "{\"personDetected\": true}");
+  String response = "{\"personDetected\": " + String(personDetected ? "true" : "false");
+  if (personDetected && lastImage != nullptr) {
+    response += ", \"imageAvailable\": true";
+  }
+  response += "}";
+  
+  server.send(200, "application/json", response);
+  
+  // Reset person detected flag after sending status
+  personDetected = false;
 }
 
 void handlePersonDetected() {
@@ -184,8 +291,15 @@ void setup()
     Serial.println(" dBm");
     Serial.println("----------------------------\n");
     
+    // Initialize SPIFFS
+    if (!SPIFFS.begin(true)) {
+      Serial.println("SPIFFS initialization failed!");
+      return;
+    }
+
     // Setup server endpoints
     server.on("/image_upload", HTTP_POST, handleImageUpload);
+    server.on("/latest_image", HTTP_GET, handleGetLatestImage);
     server.on("/person-status", HTTP_GET, handlePersonStatus);
     server.on("/person_detected", HTTP_POST, handlePersonDetected);
     
@@ -194,6 +308,7 @@ void setup()
     Serial.println("HTTP server started");
     Serial.println("Available endpoints:");
     Serial.println("POST /image_upload");
+    Serial.println("GET  /latest_image");
     Serial.println("GET  /person-status");
     Serial.println("POST /person_detected");
   } 
