@@ -94,12 +94,14 @@ void captureAndSendImage()
   // Debug print
   Serial.printf("Captured image size: %d bytes\n", imageSize);
   
-  // // Create HTTP client.
+  // Create HTTP client
   HTTPClient http;
-  http.begin("http://192.168.1.120/image_upload");
-
-  // Set headers to indicate raw image data.
-  http.addHeader("Content-Type", "text/plain"); // Assuming JPEG format
+  String uploadEndpoint = "http://172.20.10.8/image_upload";  // Update this to match your gadget's IP
+  Serial.print("Sending image to: ");
+  Serial.println(uploadEndpoint);
+  
+  http.begin(uploadEndpoint);
+  http.addHeader("Content-Type", "text/plain");
 
   // Send image data in the request body
   int httpResponseCode = http.POST(imageData, imageSize);
@@ -108,14 +110,16 @@ void captureAndSendImage()
   {
     String response = http.getString();
     Serial.println("HTTP Response Code: " + String(httpResponseCode));
-    Serial.println("Captured and sent image!!! Your an absolute beast Jaxon.");
+    Serial.println("Response: " + response);
   } 
   else 
   {
-    Serial.println("Failed to send image!");
+    Serial.print("Failed to send image! Error: ");
+    Serial.println(http.errorToString(httpResponseCode));
   }
 
-  // Free camera frame buffer memory
+  // Clean up
+  http.end();
   esp_camera_fb_return(fb);
 }
 

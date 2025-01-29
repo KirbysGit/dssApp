@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/security_card.dart';
 import '../widgets/camera_feed.dart';
+import '../widgets/person_detection_status.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -44,6 +45,10 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 24),
+
+              // Person Detection Status
+              const PersonDetectionStatus(),
               const SizedBox(height: 24),
 
               // Quick Actions

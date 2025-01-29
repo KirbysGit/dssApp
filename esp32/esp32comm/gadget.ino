@@ -23,14 +23,13 @@
 
 #include <WebServer.h>
 #include <WiFi.h>
-#include <esp32cam.h>
 #include <ObjectDetection.h>
 #include <HTTPClient.h>
 
 // PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
 // MUST USE 2.4GHz wifi band.
-const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
-const char* WIFI_PASS = "goodlife";
+const char* WIFI_SSID = "mi telefono";
+const char* WIFI_PASS = "password";
 
 // Fill with Node IP address, prob dont need anymore since our code constantly monitors the network.
 // May need for sending alarm noticiations.
@@ -79,98 +78,43 @@ const int LED = 21;
 // ----
 
 // Handle incoming image POST request.
-// void handleImageUpload() 
-// {
-//   // Example using HTTP GET request:
-//   HTTPClient http;
-//   http.begin("http://192.168.1.120/image_upload");
-
-//   // String payload = http.getString();
-//   // Serial.println(payload);
-//   // uint8_t* imageData = (uint8_t*)payload.c_str();
-//   // size_t imageSize = payload.length();
-
-//   String IncomingData = server.arg("text/plain");
-//   uint8_t* imageData = (uint8_t*)IncomingData.c_str();
-//   size_t imageSize = server.arg("text/plain").length();
-
-//   if (imageSize > PSRAM_BUF_SIZE) 
-//   {
-//     server.send(413, "text/plain", "Image too large to fit in PSRAM");
-//     return;
-//   }
-
-//   // Allocate PSRAM buffer if not already allocated.
-//   if (!psramBuffer) 
-//   {
-//     psramBuffer = (uint8_t*)ps_malloc(PSRAM_BUF_SIZE);
-//     if (!psramBuffer) 
-//     {
-//       server.send(500, "text/plain", "Failed to allocate PSRAM");
-//       return;
-//     }
-//   }
-
-//   // Copy the image data to PSRAM.
-//   memcpy(psramBuffer, imageData, imageSize);
-
-//   // Debug print
-//   Serial.printf("Captured image size: %d bytes\n", imageSize);
-//   Serial.printf("psramBuffer: %p\n", psramBuffer);
-
-//   // Send success response.
-//   server.send(200, "text/plain", "Image received and stored");
-
-//   bool personDetected = ObjectDetection::detectPerson(psramBuffer, imageSize);
-
-//   if(personDetected)
-//   {
-//     Serial.println("Person detected!");
-//     Serial.println("Sounding alarms and sending notifications...");
-//     // Sound alarm.
-//     // Send notification.
-//   }
-//   else
-//   {
-//     Serial.println("Motion detected, no person found in the area.");
-//   }
-
-//   // Free the allocated memory to avoid leaks.
-//   if (psramBuffer) 
-//   {
-//     free(psramBuffer);
-//     psramBuffer = nullptr;  // Set pointer to nullptr after freeing
-//     Serial.println("PSRAM memory deallocated.");
-//   }
-
-
-//   // Get image data from the request.
-//   // String IncomingData = server.arg("image/jpeg");
-//   // uint8_t* imageData = (uint8_t*)IncomingData.c_str();
-//   // size_t imageSize = server.arg("image/jpeg").length();
-// }
-
-void personDetected()
+void handleImageUpload() 
 {
-  // Example using HTTP GET request:
-  HTTPClient http;
-  // http.begin("http://192.168.8.213/person_detected");
+  if (server.hasArg("plain")) {
+    String imageData = server.arg("plain");
+    size_t imageSize = imageData.length();
+    
+    Serial.printf("Received image size: %d bytes\n", imageSize);
+    
+    // For now, just acknowledge receipt
+    server.send(200, "text/plain", "Image received");
+    
+    // Trigger person detection status
+    handlePersonDetected();
+  } else {
+    server.send(400, "text/plain", "No image data received");
+  }
+}
 
+void handlePersonStatus() {
+  server.send(200, "application/json", "{\"personDetected\": true}");
+}
+
+void handlePersonDetected() {
   Serial.println("Person detected");
   digitalWrite(LED, LOW);
   digitalWrite(LED, HIGH);
   
-  // Send notification to Node's to sound alarm.
-  // Send notification to mobile app.
-
-  // Add HTTP endpoint for the mobile app to check
-  server.on("/person-status", HTTP_GET, []() {
-      server.send(200, "application/json", "{\"personDetected\": true}");
-  });
+  server.send(200, "text/plain", "Person detection event received");
 }
 
 void setup()
 {
+  // Initialize LED pin
+  pinMode(LED, OUTPUT);
+  digitalWrite(LED, LOW);
+
+  // Start serial communication
   Serial.begin(115200);
   Serial.println("--------------------------------");
   Serial.println("Serial communication starting...");
@@ -178,72 +122,106 @@ void setup()
 
   // Configure wifi connection.
   WiFi.persistent(false); 
-  WiFi.mode(WIFI_STA); // Wifi to station mode.
-  WiFi.begin(WIFI_SSID, WIFI_PASS); // Connect to the wifi network.
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();  // Disconnect from any previous connections
+  delay(1000);  // Give it time to disconnect
+  
+  Serial.print("Attempting to connect to SSID: ");
+  Serial.println(WIFI_SSID);
+  
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  // Wifi attempt tracker, ensure fast connection.
+  // Wait for wifi to connect
   int attempts = 0;
 
   // Wait for wifi to connect.
   while (WiFi.status() != WL_CONNECTED && attempts < 30) 
   {
+    delay(1000);
     Serial.print("WiFi Status: ");
-    Serial.println(WiFi.status());
-    Serial.println("Connecting ESPE32-CAM to wifi...");
-    delay(2000);
+    switch(WiFi.status()) {
+      case WL_IDLE_STATUS:
+        Serial.println("IDLE"); break;
+      case WL_NO_SSID_AVAIL:
+        Serial.println("NO SSID AVAILABLE"); break;
+      case WL_SCAN_COMPLETED:
+        Serial.println("SCAN COMPLETED"); break;
+      case WL_CONNECTED:
+        Serial.println("CONNECTED"); break;
+      case WL_CONNECT_FAILED:
+        Serial.println("CONNECT FAILED"); break;
+      case WL_CONNECTION_LOST:
+        Serial.println("CONNECTION LOST"); break;
+      case WL_DISCONNECTED:
+        Serial.println("DISCONNECTED"); break;
+      default:
+        Serial.println(WiFi.status()); break;
+    }
     attempts++;
+    
+    // Blink LED to show we're trying to connect
+    digitalWrite(LED, !digitalRead(LED));
+    
+    // Every 10 attempts, try reconnecting
+    if(attempts % 10 == 0) {
+      Serial.println("Trying to reconnect...");
+      WiFi.disconnect();
+      delay(1000);
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
   }
 
-  // Wifi connection success.
+  // Wifi connection result
   if (WiFi.status() == WL_CONNECTED) 
   {
-    Serial.print("Connected! IP Address: ");
+    digitalWrite(LED, HIGH);  // Turn LED on when connected
+    Serial.println("\n----------------------------");
+    Serial.println("WiFi Connected Successfully!");
+    Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+    Serial.print("Signal Strength (RSSI): ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+    Serial.println("----------------------------\n");
+    
+    // Setup server endpoints
+    server.on("/image_upload", HTTP_POST, handleImageUpload);
+    server.on("/person-status", HTTP_GET, handlePersonStatus);
+    server.on("/person_detected", HTTP_POST, handlePersonDetected);
+    
+    // Start the web server
+    server.begin();
+    Serial.println("HTTP server started");
+    Serial.println("Available endpoints:");
+    Serial.println("POST /image_upload");
+    Serial.println("GET  /person-status");
+    Serial.println("POST /person_detected");
   } 
-  
   // Wifi connection fail.
   else 
   {
-    Serial.println("Failed to connect to WiFi. Restarting...");
-    ESP.restart();  // Restart ESP32 if connection fails
-  }
-
-  Serial.print("http://");
-  Serial.println(WiFi.localIP());
-
-  // Start the server and define the endpoint for image uploads.
-  // server.on("/image_upload", HTTP_POST, handleImageUpload);
-  server.on("/person_detected", HTTP_POST, personDetected);
-  server.begin();
-  Serial.println("HTTP server started");
-
-  // pinMode(TriggerAlarm, INPUT_PULLUP);
-  // pinMode(TurnOnLights, INPUT_PULLUP);
-  // pinMode(TurnOffAlarm, INPUT_PULLUP);
-  // pinMode(TurnOffGadget, INPUT_PULLUP);
-  // Initialize Passive IR sensor pin
-  pinMode(LED, OUTPUT);
-  digitalWrite(LED, LOW);
-
-  if (!psramFound()) 
-  {
-    Serial.println("PSRAM not found");
+    digitalWrite(LED, LOW);  // Turn LED off if failed
+    Serial.println("Failed to connect to WiFi after 30 attempts.");
+    Serial.println("Please check your WiFi credentials and router settings.");
+    Serial.println("Restarting in 5 seconds...");
+    delay(5000);
     ESP.restart();
-  }
-  else
-  {
-    Serial.println("We have PSRAM!!");
   }
 }
 
 // Main loop that continously listens for client requests.
 void loop()
 {
-  Serial.println("Test working...");
-  delay(2000);
-
-  // Handle incoming HTTP requests.
+  // Handle incoming HTTP requests
   server.handleClient();
+  
+  // Blink LED occasionally to show the device is running
+  static unsigned long lastBlink = 0;
+  if (millis() - lastBlink > 2000) {
+    digitalWrite(LED, !digitalRead(LED));
+    lastBlink = millis();
+    Serial.println("Device running...");
+  }
 
   // handleImageUpload();
 
