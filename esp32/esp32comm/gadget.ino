@@ -97,27 +97,35 @@ void handleImageUpload() {
     Serial.printf("%s: %s\n", headerName.c_str(), headerValue.c_str());
   }
 
-  // Get content length
-  size_t contentLength = 0;
-  if (server.hasHeader("Content-Length")) {
-    contentLength = server.header("Content-Length").toInt();
-    Serial.printf("Content Length from header: %d bytes\n", contentLength);
-  } else if (server.hasHeader("content-length")) {
-    contentLength = server.header("content-length").toInt();
-    Serial.printf("Content Length from header (lowercase): %d bytes\n", contentLength);
-  } else {
-    Serial.println("No Content-Length header found in any case");
-    server.send(400, "text/plain", "Missing Content-Length header");
-    return;
+  // Get the raw POST data
+  WiFiClient client = server.client();
+  
+  // First, read the headers until we find the end of headers (marked by an empty line)
+  String line;
+  int contentLength = -1;
+  
+  while (line = client.readStringUntil('\n')) {
+    line.trim();
+    Serial.printf("Header line: '%s'\n", line.c_str());
+    
+    if (line.length() == 0) {
+      break; // End of headers
+    }
+    
+    // Look for Content-Length header
+    if (line.startsWith("Content-Length: ")) {
+      contentLength = line.substring(16).toInt();
+      Serial.printf("Found Content-Length: %d\n", contentLength);
+    }
   }
 
   if (contentLength <= 0) {
-    Serial.println("Invalid content length");
-    server.send(400, "text/plain", "Invalid content length");
+    Serial.println("No valid Content-Length found");
+    server.send(400, "text/plain", "Missing or invalid Content-Length header");
     return;
   }
 
-  // Read the raw POST data
+  // Allocate buffer for the image
   uint8_t* buffer = new uint8_t[contentLength];
   if (!buffer) {
     Serial.println("Failed to allocate memory");
@@ -125,19 +133,11 @@ void handleImageUpload() {
     return;
   }
 
+  // Read the image data
   size_t receivedLength = 0;
-  WiFiClient client = server.client();
+  unsigned long timeout = millis() + 10000; // 10 second timeout
 
-  // Wait for data with timeout
-  unsigned long startTime = millis();
-  while (client.connected() && receivedLength < contentLength) {
-    if (millis() - startTime > 10000) { // 10 second timeout
-      Serial.println("Timeout waiting for data");
-      delete[] buffer;
-      server.send(408, "text/plain", "Request timeout");
-      return;
-    }
-
+  while (receivedLength < contentLength && millis() < timeout) {
     if (client.available()) {
       buffer[receivedLength] = client.read();
       receivedLength++;
@@ -147,7 +147,7 @@ void handleImageUpload() {
         Serial.printf("Received %d bytes of %d\n", receivedLength, contentLength);
       }
     }
-    yield(); // Allow ESP32 to handle background tasks
+    yield();
   }
 
   Serial.printf("Actually received: %d bytes\n", receivedLength);

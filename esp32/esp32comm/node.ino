@@ -105,20 +105,22 @@ void captureAndSendImage()
   Serial.print("Sending image to: ");
   Serial.println(uploadEndpoint);
   
-  http.begin(uploadEndpoint);
+  WiFiClient client;
+  http.begin(client, uploadEndpoint);  // Use WiFiClient explicitly
 
   // Set headers before sending
-  http.addHeader("content-type", "image/jpeg");  // lowercase to match common usage
-  http.addHeader("content-length", String(imageSize));  // lowercase to match common usage
-  http.addHeader("connection", "close");
+  http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("Content-Length", String(imageSize));
+  http.addHeader("Connection", "close");
+  http.addHeader("Accept", "*/*");
 
   // Debug print headers
   Serial.println("Sending with headers:");
-  Serial.println("content-type: image/jpeg");
-  Serial.println("content-length: " + String(imageSize));
+  Serial.println("Content-Type: image/jpeg");
+  Serial.println("Content-Length: " + String(imageSize));
 
   // Send image data in the request body
-  int httpResponseCode = http.POST((uint8_t*)imageData, imageSize);
+  int httpResponseCode = http.POST(imageData, imageSize);
 
   if (httpResponseCode > 0)
   {
