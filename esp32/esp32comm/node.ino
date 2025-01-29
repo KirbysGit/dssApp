@@ -101,13 +101,21 @@ void captureAndSendImage()
   
   // Create HTTP client
   HTTPClient http;
-  String uploadEndpoint = "http://172.20.10.8/image_upload";  // Update this to match your gadget's IP
+  String uploadEndpoint = "http://172.20.10.8/image_upload";
   Serial.print("Sending image to: ");
   Serial.println(uploadEndpoint);
   
   http.begin(uploadEndpoint);
-  http.addHeader("Content-Type", "image/jpeg");  // Changed from text/plain to image/jpeg
+
+  // Set headers before sending
+  http.addHeader("Content-Type", "image/jpeg");
   http.addHeader("Content-Length", String(imageSize));
+  http.addHeader("Connection", "close");
+
+  // Debug print headers
+  Serial.println("Sending with headers:");
+  Serial.println("Content-Type: image/jpeg");
+  Serial.println("Content-Length: " + String(imageSize));
 
   // Send image data in the request body
   int httpResponseCode = http.POST(imageData, imageSize);
@@ -127,6 +135,9 @@ void captureAndSendImage()
   // Clean up
   http.end();
   esp_camera_fb_return(fb);
+  
+  // Small delay to ensure everything is cleaned up
+  delay(100);
 }
 
 bool checkAlarmNotification() 

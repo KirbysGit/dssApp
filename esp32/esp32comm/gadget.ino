@@ -89,65 +89,77 @@ bool personDetected = false;
 void handleImageUpload() {
   Serial.println("Receiving image upload request...");
   
-  // Get the raw POST data size
-  size_t imageSize = server.arg("plain").length();
-  Serial.printf("Raw POST data size: %d bytes\n", imageSize);
+  // Check for Content-Length header
+  if (!server.hasHeader("Content-Length")) {
+    Serial.println("No Content-Length header");
+    server.send(400, "text/plain", "Missing Content-Length header");
+    return;
+  }
+
+  size_t contentLength = server.header("Content-Length").toInt();
+  Serial.printf("Content Length from header: %d bytes\n", contentLength);
   
-  // Print content type and headers for debugging
-  Serial.printf("Content-Type: %s\n", server.header("Content-Type").c_str());
-  Serial.printf("Content-Length: %s\n", server.header("Content-Length").c_str());
+  if (contentLength <= 0) {
+    Serial.println("Invalid content length");
+    server.send(400, "text/plain", "Invalid content length");
+    return;
+  }
+
+  // Allocate buffer for image data
+  uint8_t* buffer = new uint8_t[contentLength];
+  if (!buffer) {
+    Serial.println("Failed to allocate memory");
+    server.send(500, "text/plain", "Server memory error");
+    return;
+  }
+
+  // Read raw POST data
+  size_t receivedLength = 0;
+  WiFiClient client = server.client();
   
-  if (server.hasArg("plain")) {
-    String imageData = server.arg("plain");
-    
-    Serial.printf("Received image size: %d bytes\n", imageSize);
-    Serial.print("First 32 bytes of data: ");
-    for (int i = 0; i < min(32, (int)imageSize); i++) {
-      Serial.printf("%02X ", (uint8_t)imageData[i]);
+  // Wait for data to be available
+  unsigned long timeout = millis() + 5000; // 5 second timeout
+  while (client.connected() && receivedLength < contentLength && millis() < timeout) {
+    if (client.available()) {
+      buffer[receivedLength++] = client.read();
+    }
+    yield(); // Allow ESP32 to handle background tasks
+  }
+
+  Serial.printf("Actually received: %d bytes\n", receivedLength);
+
+  if (receivedLength > 0) {
+    // Print first bytes for debugging
+    Serial.print("First 32 bytes: ");
+    for (int i = 0; i < min(32, (int)receivedLength); i++) {
+      Serial.printf("%02X ", buffer[i]);
     }
     Serial.println();
 
-    // Store the image in memory
+    // Store the image
     if (lastImage != nullptr) {
       delete[] lastImage;
       lastImage = nullptr;
     }
 
-    // Allocate new memory and copy the image data
-    lastImage = new uint8_t[imageSize];
-    if (lastImage != nullptr) {
-      // Copy the raw bytes
-      memcpy(lastImage, imageData.c_str(), imageSize);
-      lastImageSize = imageSize;
+    lastImage = buffer; // Transfer ownership of buffer
+    lastImageSize = receivedLength;
 
-      // Print the actual bytes we stored
-      Serial.print("Stored image header bytes: ");
-      for (int i = 0; i < min(32, (int)lastImageSize); i++) {
-        Serial.printf("%02X ", lastImage[i]);
-      }
-      Serial.println();
-
-      // Verify JPEG header (FF D8 FF)
-      if (lastImage[0] == 0xFF && lastImage[1] == 0xD8 && lastImage[2] == 0xFF) {
-        personDetected = true;
-        Serial.println("Valid JPEG header found");
-        server.send(200, "text/plain", "Image received");
-      } else {
-        Serial.println("Invalid JPEG header");
-        Serial.printf("First three bytes: %02X %02X %02X\n", 
-          lastImage[0], lastImage[1], lastImage[2]);
-        delete[] lastImage;
-        lastImage = nullptr;
-        lastImageSize = 0;
-        server.send(400, "text/plain", "Invalid JPEG format");
-      }
+    // Verify JPEG header
+    if (lastImageSize >= 3 && lastImage[0] == 0xFF && lastImage[1] == 0xD8 && lastImage[2] == 0xFF) {
+      personDetected = true;
+      Serial.println("Valid JPEG header found");
+      server.send(200, "text/plain", "Image received");
     } else {
-      Serial.println("Failed to allocate memory for image");
-      server.send(500, "text/plain", "Failed to store image");
+      Serial.println("Invalid JPEG header");
+      delete[] lastImage;
+      lastImage = nullptr;
+      lastImageSize = 0;
+      server.send(400, "text/plain", "Invalid JPEG format");
     }
   } else {
-    Serial.println("No image data in request");
-    server.send(400, "text/plain", "No image data received");
+    delete[] buffer;
+    server.send(400, "text/plain", "No data received");
   }
 }
 
@@ -168,7 +180,7 @@ void handleGetLatestImage() {
     server.sendHeader("Expires", "0");
     
     // Send the response in smaller chunks
-    const size_t CHUNK_SIZE = 512; // Reduced chunk size
+    const size_t CHUNK_SIZE = 1024; // Increased chunk size for larger images
     size_t remaining = lastImageSize;
     size_t offset = 0;
     
@@ -183,7 +195,7 @@ void handleGetLatestImage() {
       
       // Debug print for chunks
       Serial.printf("Sent chunk: %d bytes, Remaining: %d bytes\n", chunk, remaining);
-      delay(1); // Small delay to prevent watchdog reset
+      yield(); // Allow the ESP8266 to handle background tasks
     }
     
     Serial.printf("Sent complete image: %d bytes\n", lastImageSize);
