@@ -231,7 +231,69 @@ void  setup()
   // Disable wifi persistence.
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);  // Wifi to station mode.
-  WiFi.begin(WIFI_SSID, WIFI_PASS); // Connect to the wifi network.
+  WiFi.disconnect();    // Disconnect from any previous connections
+  delay(1000);         // Give it time to disconnect
+
+  Serial.print("Attempting to connect to SSID: ");
+  Serial.println(WIFI_SSID);
+  
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  
+  int attempts = 0;
+  const int maxAttempts = 30;
+  
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+    delay(1000);
+    Serial.print("WiFi Status: ");
+    switch(WiFi.status()) {
+      case WL_IDLE_STATUS:
+        Serial.println("0 - IDLE"); break;
+      case WL_NO_SSID_AVAIL:
+        Serial.println("1 - NO SSID AVAILABLE (Check if your WiFi network name is correct)"); break;
+      case WL_SCAN_COMPLETED:
+        Serial.println("2 - SCAN COMPLETED"); break;
+      case WL_CONNECTED:
+        Serial.println("3 - CONNECTED"); break;
+      case WL_CONNECT_FAILED:
+        Serial.println("4 - CONNECT FAILED (Check if your WiFi password is correct)"); break;
+      case WL_CONNECTION_LOST:
+        Serial.println("5 - CONNECTION LOST"); break;
+      case WL_DISCONNECTED:
+        Serial.println("6 - DISCONNECTED"); break;
+      default:
+        Serial.println(WiFi.status()); break;
+    }
+    attempts++;
+    
+    // Every 10 attempts, try reconnecting
+    if(attempts % 10 == 0) {
+      Serial.println("Trying to reconnect...");
+      WiFi.disconnect();
+      delay(1000);
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n----------------------------");
+    Serial.println("WiFi Connected Successfully!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+    Serial.print("Signal Strength (RSSI): ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+    Serial.println("----------------------------\n");
+  } else {
+    Serial.println("\nFailed to connect to WiFi after maximum attempts.");
+    Serial.println("Please check:");
+    Serial.println("1. WiFi network name (SSID) is correct");
+    Serial.println("2. WiFi password is correct");
+    Serial.println("3. WiFi network is 2.4GHz (ESP32 doesn't support 5GHz)");
+    Serial.println("4. ESP32 is within range of the WiFi router");
+    Serial.println("\nRestarting in 5 seconds...");
+    delay(5000);
+    ESP.restart();
+  }
 
   // pinMode(PassiveIR_Pin, INPUT); // Setup PIR sensor
   // pinMode(Tamper_Pin, INPUT_PULLUP); // Setup Tampering pin.
