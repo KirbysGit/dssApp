@@ -108,17 +108,17 @@ void captureAndSendImage()
   http.begin(uploadEndpoint);
 
   // Set headers before sending
-  http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("Content-Length", String(imageSize));
-  http.addHeader("Connection", "close");
+  http.addHeader("content-type", "image/jpeg");  // lowercase to match common usage
+  http.addHeader("content-length", String(imageSize));  // lowercase to match common usage
+  http.addHeader("connection", "close");
 
   // Debug print headers
   Serial.println("Sending with headers:");
-  Serial.println("Content-Type: image/jpeg");
-  Serial.println("Content-Length: " + String(imageSize));
+  Serial.println("content-type: image/jpeg");
+  Serial.println("content-length: " + String(imageSize));
 
   // Send image data in the request body
-  int httpResponseCode = http.POST(imageData, imageSize);
+  int httpResponseCode = http.POST((uint8_t*)imageData, imageSize);
 
   if (httpResponseCode > 0)
   {

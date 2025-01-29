@@ -88,24 +88,36 @@ bool personDetected = false;
 // Handle incoming image POST request
 void handleImageUpload() {
   Serial.println("Receiving image upload request...");
-  
-  // Check for Content-Length header
-  if (!server.hasHeader("Content-Length")) {
-    Serial.println("No Content-Length header");
+
+  // Debug print all headers
+  Serial.println("Headers received:");
+  for (int i = 0; i < server.headers(); i++) {
+    String headerName = server.headerName(i);
+    String headerValue = server.header(i);
+    Serial.printf("%s: %s\n", headerName.c_str(), headerValue.c_str());
+  }
+
+  // Get content length
+  size_t contentLength = 0;
+  if (server.hasHeader("Content-Length")) {
+    contentLength = server.header("Content-Length").toInt();
+    Serial.printf("Content Length from header: %d bytes\n", contentLength);
+  } else if (server.hasHeader("content-length")) {
+    contentLength = server.header("content-length").toInt();
+    Serial.printf("Content Length from header (lowercase): %d bytes\n", contentLength);
+  } else {
+    Serial.println("No Content-Length header found in any case");
     server.send(400, "text/plain", "Missing Content-Length header");
     return;
   }
 
-  size_t contentLength = server.header("Content-Length").toInt();
-  Serial.printf("Content Length from header: %d bytes\n", contentLength);
-  
   if (contentLength <= 0) {
     Serial.println("Invalid content length");
     server.send(400, "text/plain", "Invalid content length");
     return;
   }
 
-  // Allocate buffer for image data
+  // Read the raw POST data
   uint8_t* buffer = new uint8_t[contentLength];
   if (!buffer) {
     Serial.println("Failed to allocate memory");
@@ -113,22 +125,34 @@ void handleImageUpload() {
     return;
   }
 
-  // Read raw POST data
   size_t receivedLength = 0;
   WiFiClient client = server.client();
-  
-  // Wait for data to be available
-  unsigned long timeout = millis() + 5000; // 5 second timeout
-  while (client.connected() && receivedLength < contentLength && millis() < timeout) {
+
+  // Wait for data with timeout
+  unsigned long startTime = millis();
+  while (client.connected() && receivedLength < contentLength) {
+    if (millis() - startTime > 10000) { // 10 second timeout
+      Serial.println("Timeout waiting for data");
+      delete[] buffer;
+      server.send(408, "text/plain", "Request timeout");
+      return;
+    }
+
     if (client.available()) {
-      buffer[receivedLength++] = client.read();
+      buffer[receivedLength] = client.read();
+      receivedLength++;
+      
+      // Print progress every 1KB
+      if (receivedLength % 1024 == 0) {
+        Serial.printf("Received %d bytes of %d\n", receivedLength, contentLength);
+      }
     }
     yield(); // Allow ESP32 to handle background tasks
   }
 
   Serial.printf("Actually received: %d bytes\n", receivedLength);
 
-  if (receivedLength > 0) {
+  if (receivedLength == contentLength) {
     // Print first bytes for debugging
     Serial.print("First 32 bytes: ");
     for (int i = 0; i < min(32, (int)receivedLength); i++) {
@@ -142,7 +166,7 @@ void handleImageUpload() {
       lastImage = nullptr;
     }
 
-    lastImage = buffer; // Transfer ownership of buffer
+    lastImage = buffer;
     lastImageSize = receivedLength;
 
     // Verify JPEG header
@@ -159,7 +183,8 @@ void handleImageUpload() {
     }
   } else {
     delete[] buffer;
-    server.send(400, "text/plain", "No data received");
+    Serial.printf("Incomplete data: received %d of %d bytes\n", receivedLength, contentLength);
+    server.send(400, "text/plain", "Incomplete data received");
   }
 }
 
