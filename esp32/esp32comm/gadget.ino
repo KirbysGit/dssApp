@@ -288,17 +288,32 @@ void handlePersonDetected() {
   String postBody = server.arg("plain");
   Serial.println("Received POST data: " + postBody);
   
-  // Extract camera_url and node from the JSON-like string
-  int urlStart = postBody.indexOf("\"camera_url\":\"") + 13;
-  int urlEnd = postBody.indexOf("\"", urlStart);
-  int nodeStart = postBody.indexOf("\"node\":\"") + 8;
-  int nodeEnd = postBody.indexOf("\"", nodeStart);
+  // Extract camera_url
+  String cameraUrl = "";
+  String nodeName = "";
   
-  String cameraUrl = postBody.substring(urlStart, urlEnd);
-  String nodeName = postBody.substring(nodeStart, nodeEnd);
+  int urlStartQuote = postBody.indexOf("\"camera_url\":\"");
+  if (urlStartQuote != -1) {
+    urlStartQuote += 13; // Length of "camera_url":\"
+    int urlEndQuote = postBody.indexOf("\"", urlStartQuote);
+    if (urlEndQuote != -1) {
+      cameraUrl = postBody.substring(urlStartQuote, urlEndQuote);
+    }
+  }
   
-  Serial.printf("Extracted - Camera URL: %s\n", cameraUrl.c_str());
-  Serial.printf("Extracted - Node Name: %s\n", nodeName.c_str());
+  // Extract node name
+  int nodeStartQuote = postBody.indexOf("\"node\":\"");
+  if (nodeStartQuote != -1) {
+    nodeStartQuote += 8; // Length of "node":\"
+    int nodeEndQuote = postBody.indexOf("\"", nodeStartQuote);
+    if (nodeEndQuote != -1) {
+      nodeName = postBody.substring(nodeStartQuote, nodeEndQuote);
+    }
+  }
+  
+  Serial.println("Extracted values:");
+  Serial.println("Camera URL: [" + cameraUrl + "]");
+  Serial.println("Node Name: [" + nodeName + "]");
   
   if (cameraUrl.length() > 0) {
     // Update or add camera to our list
@@ -308,7 +323,8 @@ void handlePersonDetected() {
         cameras[i].url = cameraUrl;
         cameras[i].lastSeen = millis();
         found = true;
-        Serial.printf("Updated existing camera %s\n", nodeName.c_str());
+        Serial.printf("Updated existing camera %s with URL %s\n", 
+                     nodeName.c_str(), cameraUrl.c_str());
         break;
       }
     }
@@ -318,7 +334,8 @@ void handlePersonDetected() {
       cameras[numCameras].name = nodeName;
       cameras[numCameras].lastSeen = millis();
       numCameras++;
-      Serial.printf("Added new camera %s, total cameras: %d\n", nodeName.c_str(), numCameras);
+      Serial.printf("Added new camera %s with URL %s, total cameras: %d\n", 
+                   nodeName.c_str(), cameraUrl.c_str(), numCameras);
     }
     
     // Set person detected flag
@@ -337,9 +354,11 @@ void handlePersonDetected() {
     
     if (http.begin(client, cameraUrl)) {
       int httpCode = http.GET();
+      Serial.printf("HTTP GET response code: %d\n", httpCode);
       
       if (httpCode == HTTP_CODE_OK) {
         int len = http.getSize();
+        Serial.printf("Image size: %d bytes\n", len);
         
         // Allocate buffer for the image
         if (lastImage != nullptr) {
@@ -357,20 +376,24 @@ void handlePersonDetected() {
           } else {
             delete[] lastImage;
             lastImage = nullptr;
-            Serial.println("Failed to read complete image");
+            Serial.printf("Failed to read complete image. Expected %d bytes, got %d bytes\n", 
+                         len, written);
           }
         } else {
-          Serial.println("Failed to allocate memory for image");
+          Serial.printf("Failed to allocate %d bytes for image\n", len);
         }
       } else {
         Serial.printf("Failed to fetch image: %d\n", httpCode);
       }
       http.end();
+    } else {
+      Serial.println("Failed to begin HTTP connection to camera");
     }
     
     server.send(200, "text/plain", "Detection recorded");
   } else {
-    server.send(400, "text/plain", "Missing camera URL");
+    Serial.println("Missing or invalid camera URL in request");
+    server.send(400, "text/plain", "Missing or invalid camera URL");
   }
 }
 

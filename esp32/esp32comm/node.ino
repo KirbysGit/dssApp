@@ -275,7 +275,11 @@ void notifyGadget() {
   Serial.println("Camera URL: " + cameraUrl);
   Serial.println("Gadget URL: " + url);
   
-  http.begin(url);
+  if (!http.begin(url)) {
+    Serial.println("Failed to begin HTTP connection");
+    return;
+  }
+  
   http.addHeader("Content-Type", "application/json");
   
   // Create JSON with camera information
@@ -283,14 +287,18 @@ void notifyGadget() {
   Serial.println("Sending message: " + message);
   
   int httpCode = http.POST(message);
+  Serial.printf("HTTP Response code: %d\n", httpCode);
   
   if (httpCode == HTTP_CODE_OK) {
+    String response = http.getString();
+    Serial.println("Server response: " + response);
     Serial.println("Notification sent successfully");
-    
-    // After successful notification, capture and send an image
-    captureAndSendImage();
   } else {
     Serial.printf("Failed to send notification, error code: %d\n", httpCode);
+    if (httpCode > 0) {
+      String response = http.getString();
+      Serial.println("Server response: " + response);
+    }
   }
   
   http.end();
@@ -352,28 +360,38 @@ void setup()
   String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
   String url = "http://" + String(GADGET_IP) + "/person_detected";
   
-  Serial.println("Registering camera with gadget...");
-  Serial.println("Camera URL: " + cameraUrl);
-  Serial.println("Gadget URL: " + url);
+  Serial.println("\nRegistering camera with gadget...");
+  Serial.println("Camera URL: [" + cameraUrl + "]");
+  Serial.println("Gadget URL: [" + url + "]");
   
-  http.begin(url);
+  if (!http.begin(url)) {
+    Serial.println("Failed to begin HTTP connection to gadget");
+    return;
+  }
+  
   http.addHeader("Content-Type", "application/json");
   
-  // Send registration message
+  // Send registration message with proper JSON formatting
   String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
-  Serial.println("Sending registration: " + message);
+  Serial.println("Sending registration message: " + message);
   
   int httpCode = http.POST(message);
+  Serial.printf("HTTP Response code: %d\n", httpCode);
   
   if (httpCode == HTTP_CODE_OK) {
+    String response = http.getString();
+    Serial.println("Gadget response: " + response);
     Serial.println("Camera registered successfully with gadget");
   } else {
     Serial.printf("Failed to register camera with gadget, error code: %d\n", httpCode);
     // Try a few more times if failed
     for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
       delay(1000);
+      Serial.printf("Retry attempt %d...\n", i + 1);
       httpCode = http.POST(message);
       if(httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        Serial.println("Gadget response: " + response);
         Serial.println("Camera registered successfully on retry");
         break;
       }
