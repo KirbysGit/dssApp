@@ -284,9 +284,21 @@ void handlePersonStatus() {
 void handlePersonDetected() {
   Serial.println("Person detection notification received");
   
+  // Print all headers and arguments for debugging
+  for (int i = 0; i < server.headers(); i++) {
+    Serial.printf("Header[%s]: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+  }
+  Serial.println("Arguments received:");
+  for (int i = 0; i < server.args(); i++) {
+    Serial.printf("Arg[%s]: %s\n", server.argName(i).c_str(), server.arg(i).c_str());
+  }
+  
   // Parse the JSON from the request
   String cameraUrl = server.arg("camera_url");
   String nodeName = server.arg("node");
+  
+  Serial.printf("Camera URL: %s\n", cameraUrl.c_str());
+  Serial.printf("Node Name: %s\n", nodeName.c_str());
   
   if (cameraUrl.length() > 0) {
     // Update or add camera to our list
@@ -296,6 +308,7 @@ void handlePersonDetected() {
         cameras[i].url = cameraUrl;
         cameras[i].lastSeen = millis();
         found = true;
+        Serial.printf("Updated existing camera %s\n", nodeName.c_str());
         break;
       }
     }
@@ -305,6 +318,7 @@ void handlePersonDetected() {
       cameras[numCameras].name = nodeName;
       cameras[numCameras].lastSeen = millis();
       numCameras++;
+      Serial.printf("Added new camera %s, total cameras: %d\n", nodeName.c_str(), numCameras);
     }
     
     // Set person detected flag
@@ -314,6 +328,45 @@ void handlePersonDetected() {
     digitalWrite(LED, HIGH);
     delay(100);
     digitalWrite(LED, LOW);
+    
+    // Fetch the latest image from this camera
+    HTTPClient http;
+    WiFiClient client;
+    
+    Serial.printf("Fetching image from %s\n", cameraUrl.c_str());
+    
+    if (http.begin(client, cameraUrl)) {
+      int httpCode = http.GET();
+      
+      if (httpCode == HTTP_CODE_OK) {
+        int len = http.getSize();
+        
+        // Allocate buffer for the image
+        if (lastImage != nullptr) {
+          delete[] lastImage;
+        }
+        lastImage = new uint8_t[len];
+        
+        if (lastImage != nullptr) {
+          WiFiClient* stream = http.getStreamPtr();
+          size_t written = stream->readBytes(lastImage, len);
+          
+          if (written == len) {
+            lastImageSize = len;
+            Serial.printf("Successfully stored image: %d bytes\n", len);
+          } else {
+            delete[] lastImage;
+            lastImage = nullptr;
+            Serial.println("Failed to read complete image");
+          }
+        } else {
+          Serial.println("Failed to allocate memory for image");
+        }
+      } else {
+        Serial.printf("Failed to fetch image: %d\n", httpCode);
+      }
+      http.end();
+    }
     
     server.send(200, "text/plain", "Detection recorded");
   } else {

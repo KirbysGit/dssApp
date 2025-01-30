@@ -268,19 +268,29 @@ void handleCapture() {
 // Notify gadget of person detection
 void notifyGadget() {
   HTTPClient http;
+  String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
   String url = "http://" + String(GADGET_IP) + "/person_detected";
+  
+  Serial.println("Sending notification to gadget...");
+  Serial.println("Camera URL: " + cameraUrl);
+  Serial.println("Gadget URL: " + url);
   
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   
-  // Send camera URL along with notification
-  String message = "{\"camera_url\":\"http://" + WiFi.localIP().toString() + "/capture\",\"node\":\"camera_node1\"}";
+  // Create JSON with camera information
+  String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+  Serial.println("Sending message: " + message);
+  
   int httpCode = http.POST(message);
   
-  if (httpCode > 0) {
-    Serial.printf("Notification sent, response: %d\n", httpCode);
+  if (httpCode == HTTP_CODE_OK) {
+    Serial.println("Notification sent successfully");
+    
+    // After successful notification, capture and send an image
+    captureAndSendImage();
   } else {
-    Serial.println("Failed to send notification");
+    Serial.printf("Failed to send notification, error code: %d\n", httpCode);
   }
   
   http.end();
@@ -343,12 +353,30 @@ void loop()
 {
   server.handleClient();
   
-  // Simulate person detection (replace with your actual detection logic)
+  // Check PIR sensor (if connected)
+  static bool lastPIRState = false;
+  bool pirState = digitalRead(PassiveIR_Pin);
+  
+  if (pirState != lastPIRState) {
+    if (pirState == HIGH) {
+      Serial.println("Motion detected!");
+      notifyGadget();  // This will also trigger image capture
+    }
+    lastPIRState = pirState;
+  }
+  
+  // For testing without PIR sensor, use timer-based detection
+  #ifndef TRIGGER_MODE
   static unsigned long lastDetection = 0;
   if (millis() - lastDetection > 10000) {  // Every 10 seconds for testing
+    Serial.println("Test: Simulating motion detection");
     notifyGadget();
     lastDetection = millis();
   }
+  #endif
+  
+  // Small delay to prevent overwhelming the system
+  delay(100);
 }
 
 // -----------------------------------------------------------------
