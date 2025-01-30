@@ -81,6 +81,17 @@ uint8_t* lastImage = nullptr;
 size_t lastImageSize = 0;
 bool personDetected = false;
 
+// Add at the top with other globals
+struct CameraNode {
+  String url;
+  String name;
+  unsigned long lastSeen;
+};
+
+#define MAX_CAMERAS 5
+CameraNode cameras[MAX_CAMERAS];
+int numCameras = 0;
+
 // ----
 // CODE
 // ----
@@ -184,64 +195,55 @@ void handleImageUpload() {
 
 // Modified to fetch image from ESP32-CAM
 void handleGetLatestImage() {
+  if (numCameras == 0) {
+    server.send(404, "text/plain", "No cameras registered");
+    return;
+  }
+  
+  // Find most recently active camera
+  int latestCamera = 0;
+  for (int i = 1; i < numCameras; i++) {
+    if (cameras[i].lastSeen > cameras[latestCamera].lastSeen) {
+      latestCamera = i;
+    }
+  }
+  
   HTTPClient http;
   WiFiClient client;
   
-  // Connect to ESP32-CAM
-  if (http.begin(client, "http://172.20.10.7/capture")) {  // Use your ESP32-CAM's IP address
+  if (http.begin(client, cameras[latestCamera].url)) {
     int httpCode = http.GET();
     
     if (httpCode == HTTP_CODE_OK) {
-      // Get the image data
+      // Forward the image data
+      String contentType = http.header("Content-Type");
       int len = http.getSize();
-      uint8_t* buffer = new uint8_t[len];
       
-      if (buffer) {
-        // Read all data into buffer
-        WiFiClient* stream = http.getStreamPtr();
-        size_t written = stream->readBytes(buffer, len);
-        
-        if (written == len) {
-          // Send the image directly to the client
-          server.sendHeader("Content-Type", "image/jpeg");
-          server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-          server.sendHeader("Pragma", "no-cache");
-          server.sendHeader("Expires", "0");
-          server.setContentLength(len);
-          server.send(200);
-          
-          // Send in chunks
-          const size_t CHUNK_SIZE = 1024;
-          size_t remaining = len;
-          size_t offset = 0;
-          
-          while (remaining > 0) {
-            size_t chunk = min(CHUNK_SIZE, remaining);
-            server.sendContent((char*)(buffer + offset), chunk);
-            remaining -= chunk;
-            offset += chunk;
-            yield();
+      server.sendHeader("Content-Type", contentType);
+      server.sendHeader("Cache-Control", "no-cache");
+      server.setContentLength(len);
+      server.send(200);
+      
+      // Stream the data
+      uint8_t buffer[1024];
+      WiFiClient* stream = http.getStreamPtr();
+      
+      while (http.connected() && (len > 0 || len == -1)) {
+        size_t size = stream->available();
+        if (size) {
+          int c = stream->readBytes(buffer, ((size > sizeof(buffer)) ? sizeof(buffer) : size));
+          server.client().write(buffer, c);
+          if (len > 0) {
+            len -= c;
           }
-          
-          Serial.printf("Successfully served image: %d bytes\n", len);
-        } else {
-          Serial.println("Failed to read complete image data");
-          server.send(500, "text/plain", "Failed to read image data");
         }
-        
-        delete[] buffer;
-      } else {
-        Serial.println("Failed to allocate buffer");
-        server.send(500, "text/plain", "Memory allocation failed");
+        yield();
       }
     } else {
-      Serial.printf("Failed to get image from camera: %d\n", httpCode);
       server.send(502, "text/plain", "Failed to get image from camera");
     }
-    
     http.end();
   } else {
-    Serial.println("Failed to connect to camera");
     server.send(502, "text/plain", "Failed to connect to camera");
   }
 }
@@ -260,12 +262,45 @@ void handlePersonStatus() {
   personDetected = false;
 }
 
+// Modified person detection handler
 void handlePersonDetected() {
-  Serial.println("Person detected");
-  digitalWrite(LED, LOW);
-  digitalWrite(LED, HIGH);
+  Serial.println("Person detection notification received");
   
-  server.send(200, "text/plain", "Person detection event received");
+  // Parse the JSON from the request
+  String cameraUrl = server.arg("camera_url");
+  String nodeName = server.arg("node");
+  
+  if (cameraUrl.length() > 0) {
+    // Update or add camera to our list
+    bool found = false;
+    for (int i = 0; i < numCameras; i++) {
+      if (cameras[i].name == nodeName) {
+        cameras[i].url = cameraUrl;
+        cameras[i].lastSeen = millis();
+        found = true;
+        break;
+      }
+    }
+    
+    if (!found && numCameras < MAX_CAMERAS) {
+      cameras[numCameras].url = cameraUrl;
+      cameras[numCameras].name = nodeName;
+      cameras[numCameras].lastSeen = millis();
+      numCameras++;
+    }
+    
+    // Set person detected flag
+    personDetected = true;
+    
+    // Blink LED to indicate detection
+    digitalWrite(LED, HIGH);
+    delay(100);
+    digitalWrite(LED, LOW);
+    
+    server.send(200, "text/plain", "Detection recorded");
+  } else {
+    server.send(400, "text/plain", "Missing camera URL");
+  }
 }
 
 // Handle direct camera capture

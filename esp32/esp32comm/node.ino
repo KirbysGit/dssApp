@@ -33,7 +33,8 @@
 // MUST USE 2.4GHz wifi band.
 const char* WIFI_SSID = "mi telefono";
 const char* WIFI_PASS = "password";
- 
+const char* GADGET_IP = "172.20.10.8";  // Your gadget's IP
+
 // Server on port 80.
 WebServer server(80);
 
@@ -102,7 +103,7 @@ void captureAndSendImage()
   WiFiClient client;
   
   Serial.println("Connecting to server...");
-  if (!client.connect("172.20.10.8", 80)) {
+  if (!client.connect(GADGET_IP, 80)) {
     Serial.println("Connection failed");
     esp_camera_fb_return(fb);
     return;
@@ -110,7 +111,7 @@ void captureAndSendImage()
 
   // Send HTTP POST request
   String head = "POST /capture HTTP/1.1\r\n";
-  head += "Host: 172.20.10.8\r\n";
+  head += "Host: " + String(GADGET_IP) + "\r\n";
   head += "Content-Type: image/jpeg\r\n";
   head += "Content-Length: " + String(imageSize) + "\r\n";
   head += "Connection: close\r\n\r\n";
@@ -159,7 +160,7 @@ bool checkAlarmNotification()
 {
   // Example using HTTP GET request:
   HTTPClient http;
-  http.begin("http://192.168.1.120/alarm_status");
+  http.begin("http://" + String(GADGET_IP) + "/alarm_status");
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) 
@@ -186,7 +187,7 @@ bool checkForTurnOnLights()
 {
   // Check for "turn_on_lights" message:
   HTTPClient http;
-  http.begin("http://192.168.1.120/light_control");
+  http.begin("http://" + String(GADGET_IP) + "/light_control");
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) 
@@ -205,7 +206,7 @@ bool checkForTurnOffLights()
 {
   // Check for "turn_off_lights" message:
   HTTPClient http;
-  http.begin("http://192.168.1.120/light_control");
+  http.begin("http://" + String(GADGET_IP) + "/light_control");
   int httpCode = http.GET();
 
   if (httpCode == HTTP_CODE_OK) 
@@ -231,40 +232,42 @@ void triggerAlarm()
 
 // Handle root
 void handleRoot() {
-  server.send(200, "text/plain", "ESP32-CAM Server");
+  server.send(200, "text/plain", "ESP32-CAM Node 1");
 }
 
 // Handle capture request
 void handleCapture() {
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Camera capture failed");
     server.send(500, "text/plain", "Camera capture failed");
     return;
   }
 
   server.sendHeader("Content-Type", "image/jpeg");
-  server.sendHeader("Content-Disposition", "inline; filename=capture.jpg");
-  server.setContentLength(fb->len);
-  server.send(200);
-
-  // Send the image data in chunks
-  const size_t CHUNK_SIZE = 1024;
-  size_t remaining = fb->len;
-  uint8_t *fbBuf = fb->buf;
-
-  while (remaining > 0) {
-    size_t chunk = min(CHUNK_SIZE, remaining);
-    server.client().write(fbBuf, chunk);
-    fbBuf += chunk;
-    remaining -= chunk;
-    if (remaining % 1024 == 0) {
-      Serial.printf("Sent %d bytes, remaining: %d\n", chunk, remaining);
-    }
-  }
-
+  server.send(200, "image/jpeg", (const char*)fb->buf, fb->len);
+  
   esp_camera_fb_return(fb);
-  Serial.println("Image sent successfully");
+}
+
+// Notify gadget of person detection
+void notifyGadget() {
+  HTTPClient http;
+  String url = "http://" + String(GADGET_IP) + "/person_detected";
+  
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  
+  // Send camera URL along with notification
+  String message = "{\"camera_url\":\"http://" + WiFi.localIP().toString() + "/capture\",\"node\":\"camera_node1\"}";
+  int httpCode = http.POST(message);
+  
+  if (httpCode > 0) {
+    Serial.printf("Notification sent, response: %d\n", httpCode);
+  } else {
+    Serial.println("Failed to send notification");
+  }
+  
+  http.end();
 }
 
 // Setup function that initializes esp32-cam.
@@ -322,68 +325,14 @@ void setup()
 // Main loop that continously listens for client requests.
 void loop()
 {
-  // Handle incoming HTTP requests.
-  // server.handleClient();
-
-  captureAndSendImage();
-
-  delay(10000);
-
-  // (1) If motion is detected by PIR
-  // if (digitalRead(PassiveIR_Pin) == HIGH) 
-  // {
-  //   Serial.println("Motion detected! Capturing and sending image...");
-  //   captureAndSendImage();
-  // }
-
-  // (2) If ActiveIR sensor is raised.
-  // if (digitalRead(ActiveIR_Pin) == HIGH) 
-  // {
-  //   // Implement logic for Active IR detection (e.g., send notification, trigger alarm)
-  //   Serial.println("Active IR sensor triggered!");
-  //   triggerAlarm();
-  // }
-
-  // (3) If Sound alarm notification received.
-  // if (checkAlarmNotification()) 
-  // {
-  //   if (payload == "start_alarm") 
-  //   {
-  //     triggerAlarm();
-  //   } 
-    
-  //   else if (payload == "stop_alarm") 
-  //   {
-  //     digitalWrite(Alarm_Pin, LOW);
-  //     Serial.println("Alarm stopped by command.");
-  //     digitalWrite(LEDStrip_Pin, LOW);
-  //     serial.println("Lights turned off!");
-  //   }
-  // }
-
-  // (4) If tampered.
-  // if (!digitalRead(Tamper_Pin)) 
-  // {
-  //   Serial.println("Tampering detected!");
-  //   triggerAlarm();
-  // }
-
-  // (5) Turn on ligths.
-  // if (checkForTurnOnLights()) 
-  // {
-  //   digitalWrite(LEDStrip_Pin, LOW); // Adjust polarity if needed to turn on lights
-  //   Serial.println("Turning on lights!");
-  //   delay(1000); // Optional: Delay before turning off (adjust as needed)
-  //   digitalWrite(LEDStrip_Pin, HIGH); // Turn off lights after delay (optional)
-  //   serial.println("Lights turned on!");
-  // }
-
-  // (6) Turn off lights.
-  // if (checkForTurnOffLights()) 
-  // {
-  //   digitalWrite(LEDStrip_Pin, LOW); // Turn off lights
-  //   Serial.println("Lights turned off!");
-  // }
+  server.handleClient();
+  
+  // Simulate person detection (replace with your actual detection logic)
+  static unsigned long lastDetection = 0;
+  if (millis() - lastDetection > 10000) {  // Every 10 seconds for testing
+    notifyGadget();
+    lastDetection = millis();
+  }
 }
 
 // -----------------------------------------------------------------
