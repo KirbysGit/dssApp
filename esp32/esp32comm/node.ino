@@ -346,6 +346,47 @@ void setup()
   
   server.begin();
   Serial.println("HTTP server started");
+
+  // Register with gadget after WiFi connection
+  HTTPClient http;
+  String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
+  String url = "http://" + String(GADGET_IP) + "/person_detected";
+  
+  Serial.println("Registering camera with gadget...");
+  Serial.println("Camera URL: " + cameraUrl);
+  Serial.println("Gadget URL: " + url);
+  
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  
+  // Send registration message
+  String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+  Serial.println("Sending registration: " + message);
+  
+  int httpCode = http.POST(message);
+  
+  if (httpCode == HTTP_CODE_OK) {
+    Serial.println("Camera registered successfully with gadget");
+  } else {
+    Serial.printf("Failed to register camera with gadget, error code: %d\n", httpCode);
+    // Try a few more times if failed
+    for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
+      delay(1000);
+      httpCode = http.POST(message);
+      if(httpCode == HTTP_CODE_OK) {
+        Serial.println("Camera registered successfully on retry");
+        break;
+      }
+    }
+  }
+  
+  http.end();
+
+  // Initialize PIR sensor pin if using TRIGGER_MODE
+  #ifdef TRIGGER_MODE
+  pinMode(PassiveIR_Pin, INPUT);
+  Serial.println("PIR sensor initialized");
+  #endif
 }
 
 // Main loop that continously listens for client requests.

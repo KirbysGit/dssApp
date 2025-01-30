@@ -284,21 +284,21 @@ void handlePersonStatus() {
 void handlePersonDetected() {
   Serial.println("Person detection notification received");
   
-  // Print all headers and arguments for debugging
-  for (int i = 0; i < server.headers(); i++) {
-    Serial.printf("Header[%s]: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
-  }
-  Serial.println("Arguments received:");
-  for (int i = 0; i < server.args(); i++) {
-    Serial.printf("Arg[%s]: %s\n", server.argName(i).c_str(), server.arg(i).c_str());
-  }
+  // Get the raw POST data
+  String postBody = server.arg("plain");
+  Serial.println("Received POST data: " + postBody);
   
-  // Parse the JSON from the request
-  String cameraUrl = server.arg("camera_url");
-  String nodeName = server.arg("node");
+  // Extract camera_url and node from the JSON-like string
+  int urlStart = postBody.indexOf("\"camera_url\":\"") + 13;
+  int urlEnd = postBody.indexOf("\"", urlStart);
+  int nodeStart = postBody.indexOf("\"node\":\"") + 8;
+  int nodeEnd = postBody.indexOf("\"", nodeStart);
   
-  Serial.printf("Camera URL: %s\n", cameraUrl.c_str());
-  Serial.printf("Node Name: %s\n", nodeName.c_str());
+  String cameraUrl = postBody.substring(urlStart, urlEnd);
+  String nodeName = postBody.substring(nodeStart, nodeEnd);
+  
+  Serial.printf("Extracted - Camera URL: %s\n", cameraUrl.c_str());
+  Serial.printf("Extracted - Node Name: %s\n", nodeName.c_str());
   
   if (cameraUrl.length() > 0) {
     // Update or add camera to our list
