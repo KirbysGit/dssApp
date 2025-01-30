@@ -100,35 +100,59 @@ void captureAndSendImage()
   Serial.println();
 
   WiFiClient client;
-  HTTPClient http;
   
   Serial.println("Connecting to server...");
+  if (!client.connect("172.20.10.8", 80)) {
+    Serial.println("Connection failed");
+    esp_camera_fb_return(fb);
+    return;
+  }
+
+  // Send HTTP POST request
+  String head = "POST /capture HTTP/1.1\r\n";
+  head += "Host: 172.20.10.8\r\n";
+  head += "Content-Type: image/jpeg\r\n";
+  head += "Content-Length: " + String(imageSize) + "\r\n";
+  head += "Connection: close\r\n\r\n";
   
-  if (http.begin(client, "http://172.20.10.8/image_upload")) {
-    // Set headers
-    http.addHeader("Content-Type", "image/jpeg");
-    http.addHeader("Content-Length", String(imageSize));
-    
-    // Send POST request with image data
-    int httpResponseCode = http.POST(imageData, imageSize);
-    
-    if (httpResponseCode > 0) {
-      Serial.printf("HTTP Response code: %d\n", httpResponseCode);
-      String response = http.getString();
-      Serial.println("Server Response: " + response);
-    } else {
-      Serial.printf("Error on sending POST: %s\n", http.errorToString(httpResponseCode).c_str());
+  client.print(head);
+  
+  // Send the image data
+  uint8_t *fbBuf = fb->buf;
+  size_t fbLen = fb->len;
+  for (size_t n=0; n<fbLen; n=n+1024) {
+    if (n+1024 < fbLen) {
+      client.write(fbBuf, 1024);
+      fbBuf += 1024;
     }
-    
-    http.end();
-  } else {
-    Serial.println("Error in HTTP begin");
+    else if (fbLen%1024>0) {
+      size_t remainder = fbLen%1024;
+      client.write(fbBuf, remainder);
+    }
   }
   
+  // Wait for server response
+  unsigned long timeout = millis();
+  while (client.available() == 0) {
+    if (millis() - timeout > 5000) {
+      Serial.println("Client Timeout!");
+      client.stop();
+      esp_camera_fb_return(fb);
+      return;
+    }
+  }
+
+  // Read server response
+  Serial.println("Server Response:");
+  while (client.available()) {
+    String line = client.readStringUntil('\n');
+    Serial.println(line);
+  }
+
   // Clean up
+  client.stop();
   esp_camera_fb_return(fb);
   Serial.println("Image send attempt completed");
-  delay(100);
 }
 
 bool checkAlarmNotification() 

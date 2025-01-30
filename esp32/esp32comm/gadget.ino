@@ -101,8 +101,8 @@ void handleImageUpload() {
   Serial.println("Content-Type: " + contentType);
   Serial.println("Content-Length: " + contentLength);
 
-  // Check for image/jpeg content type (case insensitive)
-  if (!contentType.toLowerCase().startsWith("image/jpeg")) {
+  // Check for image/jpeg content type (case-insensitive comparison)
+  if (contentType.indexOf("image/jpeg") == -1 && contentType.indexOf("IMAGE/JPEG") == -1) {
     Serial.println("Invalid content type: " + contentType);
     server.send(400, "text/plain", "Invalid content type - expected image/jpeg");
     return;
@@ -246,6 +246,65 @@ void handlePersonDetected() {
   server.send(200, "text/plain", "Person detection event received");
 }
 
+// Handle direct camera capture
+void handleCapture() {
+  Serial.println("Receiving captured image...");
+  
+  WiFiClient client = server.client();
+  String contentLength = server.header("Content-Length");
+  
+  Serial.println("Content-Length: " + contentLength);
+  int imageSize = contentLength.toInt();
+  
+  if (imageSize <= 0) {
+    Serial.println("Invalid content length");
+    server.send(400, "text/plain", "Invalid content length");
+    return;
+  }
+
+  // Allocate buffer for the image
+  if (lastImage != nullptr) {
+    delete[] lastImage;
+    lastImage = nullptr;
+  }
+  
+  lastImage = new uint8_t[imageSize];
+  if (!lastImage) {
+    Serial.println("Failed to allocate memory");
+    server.send(500, "text/plain", "Server memory error");
+    return;
+  }
+
+  // Read the image data
+  size_t receivedLength = 0;
+  unsigned long timeout = millis() + 10000; // 10 second timeout
+
+  while (receivedLength < imageSize && millis() < timeout) {
+    if (client.available()) {
+      lastImage[receivedLength] = client.read();
+      receivedLength++;
+      
+      if (receivedLength % 1024 == 0) {
+        Serial.printf("Received %d bytes of %d\n", receivedLength, imageSize);
+      }
+    }
+    yield();
+  }
+
+  if (receivedLength == imageSize) {
+    lastImageSize = imageSize;
+    personDetected = true;
+    Serial.printf("Successfully received image: %d bytes\n", imageSize);
+    server.send(200, "text/plain", "Image received");
+  } else {
+    delete[] lastImage;
+    lastImage = nullptr;
+    lastImageSize = 0;
+    Serial.println("Failed to receive complete image");
+    server.send(400, "text/plain", "Incomplete image data");
+  }
+}
+
 void setup()
 {
   // Initialize LED pin
@@ -329,7 +388,7 @@ void setup()
     }
 
     // Setup server endpoints
-    server.on("/image_upload", HTTP_POST, handleImageUpload);
+    server.on("/capture", HTTP_POST, handleCapture);
     server.on("/latest_image", HTTP_GET, handleGetLatestImage);
     server.on("/person-status", HTTP_GET, handlePersonStatus);
     server.on("/person_detected", HTTP_POST, handlePersonDetected);
@@ -338,7 +397,7 @@ void setup()
     server.begin();
     Serial.println("HTTP server started");
     Serial.println("Available endpoints:");
-    Serial.println("POST /image_upload");
+    Serial.println("POST /capture");
     Serial.println("GET  /latest_image");
     Serial.println("GET  /person-status");
     Serial.println("POST /person_detected");
