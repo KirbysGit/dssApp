@@ -89,6 +89,11 @@ bool personDetected = false;
 void handleImageUpload() {
   Serial.println("Receiving image upload request...");
   
+  // Print all headers for debugging
+  for (int i = 0; i < server.headers(); i++) {
+    Serial.printf("Header[%s]: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+  }
+
   String contentType = server.header("Content-Type");
   String contentLength = server.header("Content-Length");
 
@@ -96,7 +101,8 @@ void handleImageUpload() {
   Serial.println("Content-Type: " + contentType);
   Serial.println("Content-Length: " + contentLength);
 
-  if (contentType != "image/jpeg") {
+  // Check for image/jpeg content type (case insensitive)
+  if (!contentType.toLowerCase().startsWith("image/jpeg")) {
     Serial.println("Invalid content type: " + contentType);
     server.send(400, "text/plain", "Invalid content type - expected image/jpeg");
     return;
@@ -108,6 +114,8 @@ void handleImageUpload() {
     server.send(400, "text/plain", "Invalid content length");
     return;
   }
+
+  Serial.printf("Preparing to receive %d bytes of image data\n", contentLen);
 
   // Allocate buffer for the image
   uint8_t* buffer = new uint8_t[contentLen];
@@ -135,6 +143,13 @@ void handleImageUpload() {
   }
 
   Serial.printf("Received total: %d bytes\n", receivedLength);
+
+  // Print first few bytes for debugging
+  Serial.print("First 32 bytes received: ");
+  for (int i = 0; i < min(32, (int)receivedLength); i++) {
+    Serial.printf("%02X ", buffer[i]);
+  }
+  Serial.println();
 
   // Verify JPEG header (FF D8 FF)
   if (receivedLength >= 3 && 

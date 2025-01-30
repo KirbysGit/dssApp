@@ -99,31 +99,34 @@ void captureAndSendImage()
   }
   Serial.println();
 
+  WiFiClient client;
   HTTPClient http;
   
   Serial.println("Connecting to server...");
-  String url = "http://172.20.10.8/image_upload";
-  http.begin(url);
   
-  // Set headers for direct binary upload
-  http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("Content-Length", String(imageSize));
-  
-  // Send the request with binary data
-  int httpResponseCode = http.POST(imageData, imageSize);
-  
-  if (httpResponseCode > 0) {
-    Serial.printf("HTTP Response code: %d\n", httpResponseCode);
-    String response = http.getString();
-    Serial.println("Server Response: " + response);
+  if (http.begin(client, "http://172.20.10.8/image_upload")) {
+    // Set headers
+    http.addHeader("Content-Type", "image/jpeg");
+    http.addHeader("Content-Length", String(imageSize));
+    
+    // Send POST request with image data
+    int httpResponseCode = http.POST(imageData, imageSize);
+    
+    if (httpResponseCode > 0) {
+      Serial.printf("HTTP Response code: %d\n", httpResponseCode);
+      String response = http.getString();
+      Serial.println("Server Response: " + response);
+    } else {
+      Serial.printf("Error on sending POST: %s\n", http.errorToString(httpResponseCode).c_str());
+    }
+    
+    http.end();
   } else {
-    Serial.printf("Error code: %d\n", httpResponseCode);
+    Serial.println("Error in HTTP begin");
   }
   
   // Clean up
-  http.end();
   esp_camera_fb_return(fb);
-  
   Serial.println("Image send attempt completed");
   delay(100);
 }
