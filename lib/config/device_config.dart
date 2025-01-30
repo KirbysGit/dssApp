@@ -26,7 +26,7 @@ class DeviceConfig {
 
   // Person detection status endpoint
   static String getPersonDetectionStatusUrl() {
-    return 'http://$gadgetServerIP/person-status';  // Endpoint we defined in the gadget
+    return 'http://$gadgetServerIP/person_status';  // Match the endpoint in gadget.ino
   }
 
   // Node status URLs

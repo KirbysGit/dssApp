@@ -27,7 +27,7 @@
 #include <esp_camera.h>
 
 // Photo capture triggered by GPIO pin rising/falling.
-#define TRIGGER_MODE
+// #define TRIGGER_MODE  // Comment out to enable test mode simulation
 
 // PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
 // MUST USE 2.4GHz wifi band.
@@ -322,13 +322,13 @@ void setup()
 
     // Set resolution to high.
     cfg.setResolution(modelRes);
-    
+  
     // Buffer count for image processing.
     cfg.setBufferCount(2);
-
+  
     // Set image quality to 80%.
     cfg.setJpeg(80);
-
+  
     bool ok = Camera.begin(cfg);
     Serial.println(ok ? "Camera initialization successful" : "Camera initialization failed");
   }
@@ -412,7 +412,7 @@ void loop()
 {
   server.handleClient();
   
-  // Check PIR sensor (if connected)
+  /* // Check PIR sensor (if connected)
   static bool lastPIRState = false;
   bool pirState = digitalRead(PassiveIR_Pin);
   
@@ -423,16 +423,15 @@ void loop()
     }
     lastPIRState = pirState;
   }
-  
+  */
   // For testing without PIR sensor, use timer-based detection
   #ifndef TRIGGER_MODE
   static unsigned long lastDetection = 0;
-  if (millis() - lastDetection > 10000) {  // Every 10 seconds for testing
+  if (millis() - lastDetection > 10000) {  // Every 10 seconds
     Serial.println("Test: Simulating motion detection");
-    notifyGadget();
+    notifyGadget();  // This will trigger image capture and person detection
     lastDetection = millis();
   }
-  #endif
   
   // Small delay to prevent overwhelming the system
   delay(100);
