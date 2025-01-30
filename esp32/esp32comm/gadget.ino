@@ -195,57 +195,75 @@ void handleImageUpload() {
 
 // Modified to fetch image from ESP32-CAM
 void handleGetLatestImage() {
+  Serial.println("Received request for latest image");
+  
   if (numCameras == 0) {
+    Serial.println("No cameras registered");
     server.send(404, "text/plain", "No cameras registered");
     return;
   }
   
   // Find most recently active camera
   int latestCamera = 0;
-  for (int i = 1; i < numCameras; i++) {
-    if (cameras[i].lastSeen > cameras[latestCamera].lastSeen) {
+  unsigned long mostRecent = 0;
+  
+  for (int i = 0; i < numCameras; i++) {
+    if (cameras[i].lastSeen > mostRecent) {
+      mostRecent = cameras[i].lastSeen;
       latestCamera = i;
     }
   }
   
+  Serial.printf("Fetching image from camera: %s at %s\n", 
+                cameras[latestCamera].name.c_str(), 
+                cameras[latestCamera].url.c_str());
+  
   HTTPClient http;
   WiFiClient client;
   
-  if (http.begin(client, cameras[latestCamera].url)) {
-    int httpCode = http.GET();
-    
-    if (httpCode == HTTP_CODE_OK) {
-      // Forward the image data
-      String contentType = http.header("Content-Type");
-      int len = http.getSize();
-      
-      server.sendHeader("Content-Type", contentType);
-      server.sendHeader("Cache-Control", "no-cache");
-      server.setContentLength(len);
-      server.send(200);
-      
-      // Stream the data
-      uint8_t buffer[1024];
-      WiFiClient* stream = http.getStreamPtr();
-      
-      while (http.connected() && (len > 0 || len == -1)) {
-        size_t size = stream->available();
-        if (size) {
-          int c = stream->readBytes(buffer, ((size > sizeof(buffer)) ? sizeof(buffer) : size));
-          server.client().write(buffer, c);
-          if (len > 0) {
-            len -= c;
-          }
-        }
-        yield();
-      }
-    } else {
-      server.send(502, "text/plain", "Failed to get image from camera");
-    }
-    http.end();
-  } else {
+  if (!http.begin(client, cameras[latestCamera].url)) {
+    Serial.println("Failed to connect to camera");
     server.send(502, "text/plain", "Failed to connect to camera");
+    return;
   }
+  
+  int httpCode = http.GET();
+  Serial.printf("Camera response code: %d\n", httpCode);
+  
+  if (httpCode == HTTP_CODE_OK) {
+    String contentType = http.header("Content-Type");
+    int len = http.getSize();
+    
+    Serial.printf("Received image from camera: %d bytes\n", len);
+    
+    server.sendHeader("Content-Type", contentType);
+    server.sendHeader("Cache-Control", "no-cache");
+    server.setContentLength(len);
+    server.send(200);
+    
+    // Stream the data
+    uint8_t buffer[1024];
+    WiFiClient* stream = http.getStreamPtr();
+    
+    while (http.connected() && (len > 0 || len == -1)) {
+      size_t size = stream->available();
+      if (size) {
+        int c = stream->readBytes(buffer, ((size > sizeof(buffer)) ? sizeof(buffer) : size));
+        server.client().write(buffer, c);
+        if (len > 0) {
+          len -= c;
+        }
+      }
+      yield();
+    }
+    
+    Serial.println("Image sent to client successfully");
+  } else {
+    Serial.printf("Failed to get image from camera: %d\n", httpCode);
+    server.send(502, "text/plain", "Failed to get image from camera");
+  }
+  
+  http.end();
 }
 
 // Modified person status endpoint
@@ -447,17 +465,16 @@ void setup()
     // Setup server endpoints
     server.on("/capture", HTTP_POST, handleCapture);
     server.on("/latest_image", HTTP_GET, handleGetLatestImage);
-    server.on("/person-status", HTTP_GET, handlePersonStatus);
+    server.on("/person_status", HTTP_GET, handlePersonStatus);
     server.on("/person_detected", HTTP_POST, handlePersonDetected);
     
     // Start the web server
     server.begin();
     Serial.println("HTTP server started");
     Serial.println("Available endpoints:");
-    Serial.println("POST /capture");
-    Serial.println("GET  /latest_image");
-    Serial.println("GET  /person-status");
-    Serial.println("POST /person_detected");
+    Serial.println("GET  /latest_image - Get most recent camera image");
+    Serial.println("GET  /person_status - Check person detection status");
+    Serial.println("POST /person_detected - Receive person detection notifications");
   } 
   // Wifi connection fail.
   else 

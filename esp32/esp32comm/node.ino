@@ -243,27 +243,26 @@ void handleCapture() {
     return;
   }
 
+  // Clear any existing headers
+  server.client().flush();
+  
+  // Set headers properly
   server.sendHeader("Content-Type", "image/jpeg");
   server.sendHeader("Content-Length", String(fb->len));
+  server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Connection", "close");
+  
+  // Send the response code without content
+  server.setContentLength(fb->len);
   server.send(200);
 
-  // Send the image data in chunks
+  // Send the image data
   WiFiClient client = server.client();
-  uint8_t *fbBuf = fb->buf;
-  size_t fbLen = fb->len;
-  for (size_t n=0; n<fbLen; n=n+1024) {
-    if (n+1024 < fbLen) {
-      client.write(fbBuf, 1024);
-      fbBuf += 1024;
-    }
-    else if (fbLen%1024>0) {
-      size_t remainder = fbLen%1024;
-      client.write(fbBuf, remainder);
-    }
-  }
-
+  client.write(fb->buf, fb->len);
+  
+  // Clean up
   esp_camera_fb_return(fb);
+  Serial.printf("Sent image: %d bytes\n", fb->len);
 }
 
 // Notify gadget of person detection
