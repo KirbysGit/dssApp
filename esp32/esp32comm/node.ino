@@ -99,78 +99,32 @@ void captureAndSendImage()
   }
   Serial.println();
 
-  // Create WiFi client
-  WiFiClient client;
+  HTTPClient http;
   
   Serial.println("Connecting to server...");
-  if (!client.connect("172.20.10.8", 80)) {
-    Serial.println("Connection failed");
-    esp_camera_fb_return(fb);
-    return;
-  }
-
-  // Prepare multipart form data
-  String boundary = "DSS";
-  String head = "--" + boundary + "\r\n";
-  head += "Content-Disposition: form-data; name=\"imageFile\"; filename=\"esp32cam.jpg\"\r\n";
-  head += "Content-Type: image/jpeg\r\n\r\n";
-  String tail = "\r\n--" + boundary + "--\r\n";
-
-  uint32_t imageLen = imageSize;
-  uint32_t extraLen = head.length() + tail.length();
-  uint32_t totalLen = imageLen + extraLen;
-
-  // Send HTTP POST request with headers
-  client.println("POST /image_upload HTTP/1.1");
-  client.println("Host: 172.20.10.8");
-  client.println("Content-Type: multipart/form-data; boundary=" + boundary);
-  client.println("Content-Length: " + String(totalLen));
-  client.println("Connection: close");
-  client.println();
+  String url = "http://172.20.10.8/image_upload";
+  http.begin(url);
   
-  // Send the request body
-  client.print(head);
-
-  // Send image data in chunks
-  const size_t bufSize = 1024;
-  size_t sentBytes = 0;
+  // Set headers for direct binary upload
+  http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("Content-Length", String(imageSize));
   
-  while (sentBytes < imageLen) {
-    size_t remainingBytes = imageLen - sentBytes;
-    size_t chunkSize = min((size_t)bufSize, remainingBytes);
-    
-    client.write(imageData + sentBytes, chunkSize);
-    sentBytes += chunkSize;
-    
-    // Print progress
-    Serial.printf("Sent %d bytes of %d\n", sentBytes, imageLen);
+  // Send the request with binary data
+  int httpResponseCode = http.POST(imageData, imageSize);
+  
+  if (httpResponseCode > 0) {
+    Serial.printf("HTTP Response code: %d\n", httpResponseCode);
+    String response = http.getString();
+    Serial.println("Server Response: " + response);
+  } else {
+    Serial.printf("Error code: %d\n", httpResponseCode);
   }
   
-  client.print(tail);
-  
-  // Wait for server response
-  unsigned long timeout = millis();
-  while (client.available() == 0) {
-    if (millis() - timeout > 5000) {
-      Serial.println("Client Timeout!");
-      client.stop();
-      esp_camera_fb_return(fb);
-      return;
-    }
-  }
-
-  // Read server response
-  Serial.println("Server Response:");
-  while (client.available()) {
-    String line = client.readStringUntil('\r');
-    Serial.println(line);
-  }
-
   // Clean up
-  client.stop();
+  http.end();
   esp_camera_fb_return(fb);
   
-  Serial.println("Image sent successfully");
+  Serial.println("Image send attempt completed");
   delay(100);
 }
 

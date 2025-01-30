@@ -88,8 +88,7 @@ bool personDetected = false;
 // Handle incoming image POST request
 void handleImageUpload() {
   Serial.println("Receiving image upload request...");
-  WiFiClient client = server.client();
-
+  
   String contentType = server.header("Content-Type");
   String contentLength = server.header("Content-Length");
 
@@ -97,30 +96,18 @@ void handleImageUpload() {
   Serial.println("Content-Type: " + contentType);
   Serial.println("Content-Length: " + contentLength);
 
-  // Check for multipart form data content type
-  if (!contentType.startsWith("multipart/form-data")) {
+  if (contentType != "image/jpeg") {
     Serial.println("Invalid content type: " + contentType);
-    server.send(400, "text/plain", "Invalid content type");
+    server.send(400, "text/plain", "Invalid content type - expected image/jpeg");
     return;
   }
 
-  // Get content length
   int contentLen = contentLength.toInt();
   if (contentLen <= 0) {
     Serial.println("Invalid content length: " + contentLength);
     server.send(400, "text/plain", "Invalid content length");
     return;
   }
-
-  // Find the boundary
-  int boundaryPos = contentType.indexOf("boundary=");
-  if (boundaryPos == -1) {
-    Serial.println("No boundary found in content type: " + contentType);
-    server.send(400, "text/plain", "No boundary found");
-    return;
-  }
-  String boundary = contentType.substring(boundaryPos + 9);
-  Serial.println("Boundary: " + boundary);
 
   // Allocate buffer for the image
   uint8_t* buffer = new uint8_t[contentLen];
@@ -130,8 +117,9 @@ void handleImageUpload() {
     return;
   }
 
-  // Read the data
+  // Read the raw POST data
   size_t receivedLength = 0;
+  WiFiClient client = server.client();
   unsigned long timeout = millis() + 10000; // 10 second timeout
 
   while (receivedLength < contentLen && millis() < timeout) {
@@ -148,48 +136,32 @@ void handleImageUpload() {
 
   Serial.printf("Received total: %d bytes\n", receivedLength);
 
-  // Find the start of JPEG data (FF D8 FF)
-  int jpegStart = -1;
-  for (size_t i = 0; i < receivedLength - 3; i++) {
-    if (buffer[i] == 0xFF && buffer[i + 1] == 0xD8 && buffer[i + 2] == 0xFF) {
-      jpegStart = i;
-      break;
-    }
-  }
-
-  // Find the end of JPEG data (FF D9)
-  int jpegEnd = -1;
-  for (size_t i = receivedLength - 2; i > 0; i--) {
-    if (buffer[i] == 0xFF && buffer[i + 1] == 0xD9) {
-      jpegEnd = i + 2;
-      break;
-    }
-  }
-
-  if (jpegStart != -1 && jpegEnd != -1) {
-    size_t imageSize = jpegEnd - jpegStart;
-    Serial.printf("Found JPEG data: start=%d, end=%d, size=%d\n", jpegStart, jpegEnd, imageSize);
+  // Verify JPEG header (FF D8 FF)
+  if (receivedLength >= 3 && 
+      buffer[0] == 0xFF && 
+      buffer[1] == 0xD8 && 
+      buffer[2] == 0xFF) {
     
     // Store the image
     if (lastImage != nullptr) {
       delete[] lastImage;
     }
     
-    lastImage = new uint8_t[imageSize];
+    lastImage = new uint8_t[receivedLength];
     if (lastImage != nullptr) {
-      memcpy(lastImage, buffer + jpegStart, imageSize);
-      lastImageSize = imageSize;
+      memcpy(lastImage, buffer, receivedLength);
+      lastImageSize = receivedLength;
       personDetected = true;
       
-      Serial.printf("Successfully extracted JPEG image: %d bytes\n", imageSize);
+      Serial.printf("Successfully stored JPEG image: %d bytes\n", receivedLength);
       server.send(200, "text/plain", "Image received");
     } else {
-      Serial.println("Failed to allocate memory for image");
+      Serial.println("Failed to allocate memory for image storage");
       server.send(500, "text/plain", "Server memory error");
     }
   } else {
-    Serial.println("No valid JPEG data found in the received data");
-    server.send(400, "text/plain", "No valid JPEG data found");
+    Serial.println("Invalid JPEG format");
+    server.send(400, "text/plain", "Invalid JPEG format");
   }
 
   delete[] buffer;
