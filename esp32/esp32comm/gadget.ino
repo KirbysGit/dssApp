@@ -182,45 +182,67 @@ void handleImageUpload() {
   delete[] buffer;
 }
 
-// Modified to handle raw binary data
+// Modified to fetch image from ESP32-CAM
 void handleGetLatestImage() {
-  if (lastImage != nullptr && lastImageSize > 0) {
-    Serial.printf("Serving image of size: %d bytes\n", lastImageSize);
-    Serial.print("First 32 bytes of image: ");
-    for (int i = 0; i < min(32, (int)lastImageSize); i++) {
-      Serial.printf("%02X ", lastImage[i]);
-    }
-    Serial.println();
-
-    // Set headers for binary data
-    server.sendHeader("Content-Type", "image/jpeg");
-    server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    server.sendHeader("Pragma", "no-cache");
-    server.sendHeader("Expires", "0");
+  HTTPClient http;
+  WiFiClient client;
+  
+  // Connect to ESP32-CAM
+  if (http.begin(client, "http://172.20.10.7/capture")) {  // Use your ESP32-CAM's IP address
+    int httpCode = http.GET();
     
-    // Send the response in smaller chunks
-    const size_t CHUNK_SIZE = 1024; // Increased chunk size for larger images
-    size_t remaining = lastImageSize;
-    size_t offset = 0;
-    
-    server.setContentLength(lastImageSize);
-    server.send(200);
-    
-    while (remaining > 0) {
-      size_t chunk = min(CHUNK_SIZE, remaining);
-      server.sendContent((char*)(lastImage + offset), chunk);
-      remaining -= chunk;
-      offset += chunk;
+    if (httpCode == HTTP_CODE_OK) {
+      // Get the image data
+      int len = http.getSize();
+      uint8_t* buffer = new uint8_t[len];
       
-      // Debug print for chunks
-      Serial.printf("Sent chunk: %d bytes, Remaining: %d bytes\n", chunk, remaining);
-      yield(); // Allow the ESP8266 to handle background tasks
+      if (buffer) {
+        // Read all data into buffer
+        WiFiClient* stream = http.getStreamPtr();
+        size_t written = stream->readBytes(buffer, len);
+        
+        if (written == len) {
+          // Send the image directly to the client
+          server.sendHeader("Content-Type", "image/jpeg");
+          server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          server.sendHeader("Pragma", "no-cache");
+          server.sendHeader("Expires", "0");
+          server.setContentLength(len);
+          server.send(200);
+          
+          // Send in chunks
+          const size_t CHUNK_SIZE = 1024;
+          size_t remaining = len;
+          size_t offset = 0;
+          
+          while (remaining > 0) {
+            size_t chunk = min(CHUNK_SIZE, remaining);
+            server.sendContent((char*)(buffer + offset), chunk);
+            remaining -= chunk;
+            offset += chunk;
+            yield();
+          }
+          
+          Serial.printf("Successfully served image: %d bytes\n", len);
+        } else {
+          Serial.println("Failed to read complete image data");
+          server.send(500, "text/plain", "Failed to read image data");
+        }
+        
+        delete[] buffer;
+      } else {
+        Serial.println("Failed to allocate buffer");
+        server.send(500, "text/plain", "Memory allocation failed");
+      }
+    } else {
+      Serial.printf("Failed to get image from camera: %d\n", httpCode);
+      server.send(502, "text/plain", "Failed to get image from camera");
     }
     
-    Serial.printf("Sent complete image: %d bytes\n", lastImageSize);
+    http.end();
   } else {
-    Serial.println("No image available to serve");
-    server.send(404, "text/plain", "No image available");
+    Serial.println("Failed to connect to camera");
+    server.send(502, "text/plain", "Failed to connect to camera");
   }
 }
 

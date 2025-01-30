@@ -35,7 +35,7 @@ const char* WIFI_SSID = "mi telefono";
 const char* WIFI_PASS = "password";
  
 // Server on port 80.
-// WebServer server(80);
+WebServer server(80);
 
 // ----------
 // RESOLUTION
@@ -229,8 +229,30 @@ void triggerAlarm()
   Serial.println("Lights turned on!");
 }
 
+// Handle root
+void handleRoot() {
+  server.send(200, "text/plain", "ESP32-CAM Server");
+}
+
+// Handle capture request
+void handleCapture() {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("Camera capture failed");
+    server.send(500, "text/plain", "Camera capture failed");
+    return;
+  }
+
+  server.sendHeader("Content-Type", "image/jpeg");
+  server.sendHeader("Content-Disposition", "inline; filename=capture.jpg");
+  server.setContentLength(fb->len);
+  server.send(200, "image/jpeg", (char *)fb->buf, fb->len);
+
+  esp_camera_fb_return(fb);
+}
+
 // Setup function that initializes esp32-cam.
-void  setup()
+void setup()
 {
   Serial.begin(115200);
   Serial.println("--------------------------------");
@@ -253,109 +275,32 @@ void  setup()
 
     // Set image quality to 80%.
     cfg.setJpeg(80);
-    
-    // Log if camera was succesful.
+
     bool ok = Camera.begin(cfg);
-    // Serial.println(ok ? "CAMERA OK" : "CAMERA FAIL");
-  }  
+    Serial.println(ok ? "Camera initialization successful" : "Camera initialization failed");
+  }
 
-  // Configure wifi connection.
-  // Disable wifi persistence.
+  // Configure wifi connection
   WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);  // Wifi to station mode.
-  WiFi.disconnect();    // Disconnect from any previous connections
-  delay(1000);         // Give it time to disconnect
-
-  Serial.print("Attempting to connect to SSID: ");
-  Serial.println(WIFI_SSID);
-  
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  
-  int attempts = 0;
-  const int maxAttempts = 30;
-  
-  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
-    delay(1000);
-    Serial.print("WiFi Status: ");
-    switch(WiFi.status()) {
-      case WL_IDLE_STATUS:
-        Serial.println("0 - IDLE"); break;
-      case WL_NO_SSID_AVAIL:
-        Serial.println("1 - NO SSID AVAILABLE (Check if your WiFi network name is correct)"); break;
-      case WL_SCAN_COMPLETED:
-        Serial.println("2 - SCAN COMPLETED"); break;
-      case WL_CONNECTED:
-        Serial.println("3 - CONNECTED"); break;
-      case WL_CONNECT_FAILED:
-        Serial.println("4 - CONNECT FAILED (Check if your WiFi password is correct)"); break;
-      case WL_CONNECTION_LOST:
-        Serial.println("5 - CONNECTION LOST"); break;
-      case WL_DISCONNECTED:
-        Serial.println("6 - DISCONNECTED"); break;
-      default:
-        Serial.println(WiFi.status()); break;
-    }
-    attempts++;
-    
-    // Every 10 attempts, try reconnecting
-    if(attempts % 10 == 0) {
-      Serial.println("Trying to reconnect...");
-      WiFi.disconnect();
-      delay(1000);
-      WiFi.begin(WIFI_SSID, WIFI_PASS);
-    }
+
+  // Wait for wifi to connect
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n----------------------------");
-    Serial.println("WiFi Connected Successfully!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("Signal Strength (RSSI): ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
-    Serial.println("----------------------------\n");
-  } else {
-    Serial.println("\nFailed to connect to WiFi after maximum attempts.");
-    Serial.println("Please check:");
-    Serial.println("1. WiFi network name (SSID) is correct");
-    Serial.println("2. WiFi password is correct");
-    Serial.println("3. WiFi network is 2.4GHz (ESP32 doesn't support 5GHz)");
-    Serial.println("4. ESP32 is within range of the WiFi router");
-    Serial.println("\nRestarting in 5 seconds...");
-    delay(5000);
-    ESP.restart();
-  }
-
-  // pinMode(PassiveIR_Pin, INPUT); // Setup PIR sensor
-  // pinMode(Tamper_Pin, INPUT_PULLUP); // Setup Tampering pin.
-
-  // Wait for wifi to connect.
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) 
-  {
-    Serial.print("WiFi Status: ");
-    Serial.println(WiFi.status());
-    Serial.println("Connecting ESP32-CAM to wifi...");
-    delay(2000);
-    attempts++;
-  }
-
-  // Wifi connection success.
-  if (WiFi.status() == WL_CONNECTED) 
-  {
-    Serial.print("Connected! IP Address: ");
-    Serial.println(WiFi.localIP());
-  } 
-  
-  // Wifi connection fail.
-  else 
-  {
-    Serial.println("Failed to connect to WiFi. Restarting...");
-    ESP.restart();  // Restart ESP32 if connection fails
-  }
-
-  Serial.print("http://");
+  Serial.println("\nWiFi connected");
+  Serial.print("Camera Stream Ready! Go to: http://");
   Serial.println(WiFi.localIP());
+
+  // Set up HTTP server endpoints
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/capture", HTTP_GET, handleCapture);
+  
+  server.begin();
+  Serial.println("HTTP server started");
 }
 
 // Main loop that continously listens for client requests.
