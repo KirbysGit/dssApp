@@ -97,15 +97,17 @@ void handleImageUpload() {
   Serial.println("Content-Type: " + contentType);
   Serial.println("Content-Length: " + contentLength);
 
+  // Check for multipart form data content type
   if (!contentType.startsWith("multipart/form-data")) {
-    Serial.println("Invalid content type");
+    Serial.println("Invalid content type: " + contentType);
     server.send(400, "text/plain", "Invalid content type");
     return;
   }
 
+  // Get content length
   int contentLen = contentLength.toInt();
   if (contentLen <= 0) {
-    Serial.println("Invalid content length");
+    Serial.println("Invalid content length: " + contentLength);
     server.send(400, "text/plain", "Invalid content length");
     return;
   }
@@ -113,7 +115,7 @@ void handleImageUpload() {
   // Find the boundary
   int boundaryPos = contentType.indexOf("boundary=");
   if (boundaryPos == -1) {
-    Serial.println("No boundary found");
+    Serial.println("No boundary found in content type: " + contentType);
     server.send(400, "text/plain", "No boundary found");
     return;
   }
@@ -123,7 +125,7 @@ void handleImageUpload() {
   // Allocate buffer for the image
   uint8_t* buffer = new uint8_t[contentLen];
   if (!buffer) {
-    Serial.println("Failed to allocate memory");
+    Serial.println("Failed to allocate memory for buffer");
     server.send(500, "text/plain", "Server memory error");
     return;
   }
@@ -166,6 +168,7 @@ void handleImageUpload() {
 
   if (jpegStart != -1 && jpegEnd != -1) {
     size_t imageSize = jpegEnd - jpegStart;
+    Serial.printf("Found JPEG data: start=%d, end=%d, size=%d\n", jpegStart, jpegEnd, imageSize);
     
     // Store the image
     if (lastImage != nullptr) {
@@ -185,7 +188,7 @@ void handleImageUpload() {
       server.send(500, "text/plain", "Server memory error");
     }
   } else {
-    Serial.println("No valid JPEG data found");
+    Serial.println("No valid JPEG data found in the received data");
     server.send(400, "text/plain", "No valid JPEG data found");
   }
 
@@ -376,7 +379,6 @@ void loop()
   if (millis() - lastBlink > 2000) {
     digitalWrite(LED, !digitalRead(LED));
     lastBlink = millis();
-    Serial.println("Device running...");
   }
 
   // handleImageUpload();

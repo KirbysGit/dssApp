@@ -109,19 +109,22 @@ void captureAndSendImage()
     return;
   }
 
-  // Prepare HTTP POST request
-  String head = "--DSS\r\nContent-Disposition: form-data; name=\"imageFile\"; filename=\"esp32cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
-  String tail = "\r\n--DSS--\r\n";
+  // Prepare multipart form data
+  String boundary = "DSS";
+  String head = "--" + boundary + "\r\n";
+  head += "Content-Disposition: form-data; name=\"imageFile\"; filename=\"esp32cam.jpg\"\r\n";
+  head += "Content-Type: image/jpeg\r\n\r\n";
+  String tail = "\r\n--" + boundary + "--\r\n";
 
   uint32_t imageLen = imageSize;
   uint32_t extraLen = head.length() + tail.length();
   uint32_t totalLen = imageLen + extraLen;
 
-  // Send HTTP POST request
+  // Send HTTP POST request with headers
   client.println("POST /image_upload HTTP/1.1");
   client.println("Host: 172.20.10.8");
+  client.println("Content-Type: multipart/form-data; boundary=" + boundary);
   client.println("Content-Length: " + String(totalLen));
-  client.println("Content-Type: multipart/form-data; boundary=DSS");
   client.println("Connection: close");
   client.println();
   
