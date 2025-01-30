@@ -246,9 +246,25 @@ void handleCapture() {
   server.sendHeader("Content-Type", "image/jpeg");
   server.sendHeader("Content-Disposition", "inline; filename=capture.jpg");
   server.setContentLength(fb->len);
-  server.send(200, "image/jpeg", (char *)fb->buf, fb->len);
+  server.send(200);
+
+  // Send the image data in chunks
+  const size_t CHUNK_SIZE = 1024;
+  size_t remaining = fb->len;
+  uint8_t *fbBuf = fb->buf;
+
+  while (remaining > 0) {
+    size_t chunk = min(CHUNK_SIZE, remaining);
+    server.client().write(fbBuf, chunk);
+    fbBuf += chunk;
+    remaining -= chunk;
+    if (remaining % 1024 == 0) {
+      Serial.printf("Sent %d bytes, remaining: %d\n", chunk, remaining);
+    }
+  }
 
   esp_camera_fb_return(fb);
+  Serial.println("Image sent successfully");
 }
 
 // Setup function that initializes esp32-cam.
