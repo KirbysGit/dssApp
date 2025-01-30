@@ -283,19 +283,23 @@
 
   // Modified person detection handler
   void handlePersonDetected() {
-    Serial.println("Person detection notification received");
+    Serial.println("\n========== PERSON DETECTION NOTIFICATION ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Sender IP: " + server.client().remoteIP().toString());
     
     // Get the raw POST data
     String postBody = server.arg("plain");
-    Serial.println("Received POST data: " + postBody);
+    Serial.println("\nReceived POST data: [" + postBody + "]");
+    Serial.println("POST data length: " + String(postBody.length()));
 
     // Create a JSON document
     StaticJsonDocument<200> doc;
     DeserializationError error = deserializeJson(doc, postBody);
 
     if (error) {
-      Serial.print("JSON parsing failed: ");
+      Serial.print("JSON parsing failed! Error: ");
       Serial.println(error.c_str());
+      Serial.println("==============================================\n");
       server.send(400, "text/plain", "Invalid JSON format");
       return;
     }
@@ -304,13 +308,9 @@
     const char* cameraUrl = doc["camera_url"];
     const char* nodeName = doc["node"];
 
-    Serial.println("Extracted values from JSON:");
-    Serial.print("Camera URL: [");
-    Serial.print(cameraUrl ? cameraUrl : "null");
-    Serial.println("]");
-    Serial.print("Node Name: [");
-    Serial.print(nodeName ? nodeName : "null");
-    Serial.println("]");
+    Serial.println("\nParsed JSON values:");
+    Serial.println("Camera URL: [" + String(cameraUrl ? cameraUrl : "null") + "]");
+    Serial.println("Node Name: [" + String(nodeName ? nodeName : "null") + "]");
 
     if (cameraUrl && strlen(cameraUrl) > 0) {
       // Update or add camera to our list
@@ -336,6 +336,7 @@
       
       // Set person detected flag
       personDetected = true;
+      Serial.println("\nPerson detection flag set to TRUE");
       
       // Blink LED to indicate detection
       digitalWrite(LED, HIGH);
@@ -346,14 +347,14 @@
       HTTPClient http;
       WiFiClient client;
       
-      Serial.printf("Attempting to fetch image from %s\n", cameraUrl);
+      Serial.printf("\nAttempting to fetch image from %s\n", cameraUrl);
       
       // Try up to 3 times to connect and fetch the image
       bool success = false;
       for(int attempt = 0; attempt < 3 && !success; attempt++) {
         if(attempt > 0) {
           Serial.printf("Retry attempt %d...\n", attempt + 1);
-          delay(1000);  // Wait a bit between retries
+          delay(1000);
         }
         
         if (!http.begin(client, cameraUrl)) {
@@ -362,7 +363,7 @@
         }
         
         // Set timeout for connection and data transfer
-        http.setTimeout(5000);  // 5 seconds timeout
+        http.setTimeout(5000);
         
         int httpCode = http.GET();
         Serial.printf("HTTP GET response code: %d\n", httpCode);
@@ -440,11 +441,14 @@
         Serial.println("Failed to fetch image after all attempts");
       }
       
+      Serial.println("\nSending response to node...");
       server.send(200, "text/plain", "Detection recorded");
     } else {
       Serial.println("Missing or invalid camera URL in JSON");
       server.send(400, "text/plain", "Missing or invalid camera URL");
     }
+    
+    Serial.println("==============================================\n");
   }
 
   // Handle direct camera capture

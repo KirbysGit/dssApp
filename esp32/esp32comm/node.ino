@@ -302,6 +302,9 @@ void notifyGadget() {
   }
   
   http.end();
+  
+  // After notifying, capture and send the image
+  captureAndSendImage();
 }
 
 // Setup function that initializes esp32-cam.
@@ -427,10 +430,14 @@ void loop()
   // For testing without PIR sensor, use timer-based detection
   #ifndef TRIGGER_MODE
   static unsigned long lastDetection = 0;
-  if (millis() - lastDetection > 10000) {  // Every 10 seconds
+  unsigned long currentMillis = millis();
+  
+  if (currentMillis - lastDetection > 10000) {  // Every 10 seconds
+    Serial.println("\n----------------------------");
     Serial.println("Test: Simulating motion detection");
-    notifyGadget();  // This will trigger image capture and person detection
-    lastDetection = millis();
+    Serial.println("----------------------------");
+    notifyGadget();  // This will trigger person detection and image capture
+    lastDetection = currentMillis;
   }
   
   // Small delay to prevent overwhelming the system
