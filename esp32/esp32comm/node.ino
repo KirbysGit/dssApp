@@ -244,8 +244,25 @@ void handleCapture() {
   }
 
   server.sendHeader("Content-Type", "image/jpeg");
-  server.send(200, "image/jpeg", (const char*)fb->buf, fb->len);
-  
+  server.sendHeader("Content-Length", String(fb->len));
+  server.sendHeader("Connection", "close");
+  server.send(200);
+
+  // Send the image data in chunks
+  WiFiClient client = server.client();
+  uint8_t *fbBuf = fb->buf;
+  size_t fbLen = fb->len;
+  for (size_t n=0; n<fbLen; n=n+1024) {
+    if (n+1024 < fbLen) {
+      client.write(fbBuf, 1024);
+      fbBuf += 1024;
+    }
+    else if (fbLen%1024>0) {
+      size_t remainder = fbLen%1024;
+      client.write(fbBuf, remainder);
+    }
+  }
+
   esp_camera_fb_return(fb);
 }
 
