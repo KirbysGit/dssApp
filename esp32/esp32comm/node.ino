@@ -25,6 +25,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_camera.h>
+#include <esp_heap_caps.h>
 
 // Photo capture triggered by GPIO pin rising/falling.
 // #define TRIGGER_MODE  // Comment out to enable test mode simulation
@@ -81,6 +82,70 @@ const byte Tamper_Pin = GPIO_NUM_1;
 // CODE
 // ----
 
+void checkPSRAM() {
+    Serial.println("\n========== CHECKING PSRAM ==========");
+    if (psramFound()) {
+        size_t psramSize = ESP.getPsramSize();
+        size_t freePsram = ESP.getFreePsram();
+        Serial.println("[INFO] PSRAM found and enabled!");
+        Serial.printf("Total PSRAM: %d bytes\n", psramSize);
+        Serial.printf("Free PSRAM: %d bytes\n", freePsram);
+        
+        // Check if PSRAM is actually usable
+        uint8_t* testAlloc = (uint8_t*)ps_malloc(1024);
+        if (testAlloc != nullptr) {
+            Serial.println("[INFO] PSRAM allocation test successful");
+            free(testAlloc);
+        } else {
+            Serial.println("[ERROR] PSRAM allocation test failed!");
+        }
+    } else {
+        Serial.println("[ERROR] PSRAM NOT FOUND! Camera may fail with high resolutions.");
+    }
+    Serial.println("==================================\n");
+}
+
+bool initCamera() {
+    Serial.println("\n========== INITIALIZING CAMERA ==========");
+    
+    using namespace esp32cam;
+    Config cfg;
+    cfg.setPins(pins::AiThinker);
+    
+    // Try lower resolution first
+    cfg.setResolution(Resolution::find(320, 240));  // QVGA resolution
+    cfg.setBufferCount(2);
+    cfg.setJpeg(80);
+    
+    bool success = Camera.begin(cfg);
+    if (!success) {
+        Serial.println("[ERROR] Camera initialization failed!");
+        Serial.println("Possible causes:");
+        Serial.println("1. Camera hardware issue");
+        Serial.println("2. Power supply issue");
+        Serial.println("3. PSRAM issue");
+        return false;
+    }
+    
+    Serial.println("[INFO] Camera initialized successfully!");
+    Serial.printf("Resolution: %dx%d\n", cfg.frame.size.width, cfg.frame.size.height);
+    Serial.printf("JPEG Quality: %d%%\n", cfg.jpeg.quality);
+    Serial.printf("Buffer Count: %d\n", cfg.frame.buffers);
+    
+    // Test capture
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb) {
+        Serial.printf("[INFO] Test capture successful! Size: %d bytes\n", fb->len);
+        esp_camera_fb_return(fb);
+    } else {
+        Serial.println("[ERROR] Test capture failed!");
+        return false;
+    }
+    
+    Serial.println("======================================\n");
+    return true;
+}
+
 // Capture and send image when PIR detects motion.
 void captureAndSendImage() 
 {
@@ -90,19 +155,44 @@ void captureAndSendImage()
         return;
     }
 
-    // Capture image using ESP32-CAM library
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
+    Serial.println("\n========== ATTEMPTING TO CAPTURE IMAGE ==========");
+    Serial.printf("Free PSRAM before capture: %d bytes\n", ESP.getFreePsram());
+    
+    // Try to capture image multiple times
+    camera_fb_t *fb = nullptr;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        Serial.printf("\n[DEBUG] Capture attempt %d/3\n", attempt + 1);
+        
+        fb = esp_camera_fb_get();
+        if (fb) {
+            Serial.println("[INFO] Image captured successfully!");
+            break;
+        }
+        
         Serial.println("[ERROR] Failed to capture image");
+        Serial.println("[DEBUG] Camera frame buffer returned NULL");
+        Serial.printf("[DEBUG] Free PSRAM: %d bytes\n", ESP.getFreePsram());
+        
+        if (attempt < 2) {
+            Serial.println("Waiting before retry...");
+            delay(500);
+        }
+    }
+
+    if (!fb) {
+        Serial.println("[ERROR] Camera failed after multiple attempts!");
+        Serial.println("Restarting ESP32-CAM...");
+        delay(1000);
+        ESP.restart();
         return;
     }
 
     uint8_t* imageData = fb->buf;
     size_t imageSize = fb->len;
 
-    Serial.printf("\n========== SENDING IMAGE ==========\n");
-    Serial.printf("Time: %lu\n", millis());
-    Serial.printf("Image size: %d bytes\n", imageSize);
+    Serial.printf("Captured image size: %d bytes\n", imageSize);
+    Serial.printf("Image format: %d\n", fb->format);
+    Serial.printf("Image width: %d, height: %d\n", fb->width, fb->height);
     Serial.print("First 32 bytes: ");
     for (int i = 0; i < min(32, (int)imageSize); i++) {
         Serial.printf("%02X ", imageData[i]);
@@ -211,6 +301,7 @@ void captureAndSendImage()
     // Clean up
     client.stop();
     esp_camera_fb_return(fb);
+    Serial.printf("Free PSRAM after cleanup: %d bytes\n", ESP.getFreePsram());
     Serial.println("====================================\n");
 }
 
@@ -384,25 +475,25 @@ void setup()
     Serial.println("Starting ESP32-CAM...");
     Serial.println("--------------------------------");
 
-    // Configure ESP32-CAM.
-    {
-        using namespace esp32cam;
-        Config cfg;
+    // Check PSRAM first
+    checkPSRAM();
 
-        // Set pin configuration for AI thinker model.
-        cfg.setPins(pins::AiThinker);
+    // Initialize camera with retries
+    bool cameraInitialized = false;
+    for (int attempt = 0; attempt < 3 && !cameraInitialized; attempt++) {
+        if (attempt > 0) {
+            Serial.printf("\nRetrying camera initialization (attempt %d/3)...\n", attempt + 1);
+            delay(1000);
+        }
+        cameraInitialized = initCamera();
+    }
 
-        // Set resolution to high.
-        cfg.setResolution(modelRes);
-    
-        // Buffer count for image processing.
-        cfg.setBufferCount(2);
-    
-        // Set image quality to 80%.
-        cfg.setJpeg(80);
-    
-        bool ok = Camera.begin(cfg);
-        Serial.println(ok ? "Camera initialization successful" : "Camera initialization failed");
+    if (!cameraInitialized) {
+        Serial.println("\n[FATAL] Failed to initialize camera after multiple attempts!");
+        Serial.println("Please check power supply and camera hardware.");
+        Serial.println("Restarting in 5 seconds...");
+        delay(5000);
+        ESP.restart();
     }
 
     // Wi-Fi Configuration
