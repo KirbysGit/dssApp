@@ -31,9 +31,13 @@
 
 // PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
 // MUST USE 2.4GHz wifi band.
-const char* WIFI_SSID = "mi telefono";
-const char* WIFI_PASS = "password";
-const char* GADGET_IP = "172.20.10.8";  // Your gadget's IP
+//const char* WIFI_SSID = "mi telefono";
+//const char* WIFI_PASS = "password";
+//const char* GADGET_IP = "172.20.10.8";  // Your gadget's IP
+
+const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
+const char* WIFI_PASS = "goodlife";
+const char* GADGET_IP = "192.168.8.151";
 
 // Server on port 80.
 WebServer server(80);
@@ -267,181 +271,218 @@ void handleCapture() {
 
 // Notify gadget of person detection
 void notifyGadget() {
-  HTTPClient http;
-  String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
-  String url = "http://" + String(GADGET_IP) + "/person_detected";
-  
-  Serial.println("Sending notification to gadget...");
-  Serial.println("Camera URL: " + cameraUrl);
-  Serial.println("Gadget URL: " + url);
-  
-  if (!http.begin(url)) {
-    Serial.println("Failed to begin HTTP connection");
-    return;
-  }
-  
-  http.addHeader("Content-Type", "application/json");
-  
-  // Create JSON with camera information
-  String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
-  Serial.println("Sending message: " + message);
-  
-  int httpCode = http.POST(message);
-  Serial.printf("HTTP Response code: %d\n", httpCode);
-  
-  if (httpCode == HTTP_CODE_OK) {
-    String response = http.getString();
-    Serial.println("Server response: " + response);
-    Serial.println("Notification sent successfully");
-  } else {
-    Serial.printf("Failed to send notification, error code: %d\n", httpCode);
-    if (httpCode > 0) {
-      String response = http.getString();
-      Serial.println("Server response: " + response);
+    // Ensure Wi-Fi is connected
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[ERROR] Wi-Fi Disconnected! Cannot send notification.");
+        return;
     }
-  }
-  
-  http.end();
-  
-  // After notifying, capture and send the image
-  captureAndSendImage();
+
+    HTTPClient http;
+    String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
+    String url = "http://" + String(GADGET_IP) + "/person_detected";
+    
+    Serial.println("Sending notification to gadget...");
+    Serial.println("Camera URL: " + cameraUrl);
+    Serial.println("Gadget URL: " + url);
+    
+    if (!http.begin(url)) {
+        Serial.println("[ERROR] Failed to begin HTTP connection");
+        return;
+    }
+    
+    http.addHeader("Content-Type", "application/json");
+    
+    // Create JSON with camera information
+    String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+    Serial.println("Sending message: " + message);
+    
+    // Increase timeout to allow network recovery
+    http.setTimeout(10000);  // 10 seconds
+    
+    int httpCode = http.POST(message);
+    Serial.printf("HTTP Response code: %d\n", httpCode);
+    
+    if (httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        Serial.println("Server response: " + response);
+        Serial.println("Notification sent successfully");
+    } else {
+        Serial.printf("[ERROR] Failed to send notification, HTTP error: %d\n", httpCode);
+        if (httpCode > 0) {
+            String response = http.getString();
+            Serial.println("Server response: " + response);
+        }
+    }
+    
+    http.end();
+    
+    // After notifying, capture and send the image only if notification was successful
+    if (httpCode == HTTP_CODE_OK) {
+        captureAndSendImage();
+    }
 }
 
 // Setup function that initializes esp32-cam.
 void setup()
 {
-  Serial.begin(115200);
-  Serial.println("--------------------------------");
-  Serial.println("Serial communication starting...");
-  Serial.println("--------------------------------");
+    Serial.begin(115200);
+    Serial.println("--------------------------------");
+    Serial.println("Starting ESP32-CAM...");
+    Serial.println("--------------------------------");
 
-  // Configure ESP32-CAM.
-  {
-    using namespace esp32cam;
-    Config cfg;
+    // Configure ESP32-CAM.
+    {
+        using namespace esp32cam;
+        Config cfg;
 
-    // Set pin configuration for AI thinker model.
-    cfg.setPins(pins::AiThinker);
+        // Set pin configuration for AI thinker model.
+        cfg.setPins(pins::AiThinker);
 
-    // Set resolution to high.
-    cfg.setResolution(modelRes);
-  
-    // Buffer count for image processing.
-    cfg.setBufferCount(2);
-  
-    // Set image quality to 80%.
-    cfg.setJpeg(80);
-  
-    bool ok = Camera.begin(cfg);
-    Serial.println(ok ? "Camera initialization successful" : "Camera initialization failed");
-  }
-
-  // Configure wifi connection
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  // Wait for wifi to connect
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("\nWiFi connected");
-  Serial.print("Camera Stream Ready! Go to: http://");
-  Serial.println(WiFi.localIP());
-
-  // Set up HTTP server endpoints
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/capture", HTTP_GET, handleCapture);
-  
-  server.begin();
-  Serial.println("HTTP server started");
-
-  // Register with gadget after WiFi connection
-  HTTPClient http;
-  String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
-  String url = "http://" + String(GADGET_IP) + "/person_detected";
-  
-  Serial.println("\nRegistering camera with gadget...");
-  Serial.println("Camera URL: [" + cameraUrl + "]");
-  Serial.println("Gadget URL: [" + url + "]");
-  
-  if (!http.begin(url)) {
-    Serial.println("Failed to begin HTTP connection to gadget");
-    return;
-  }
-  
-  http.addHeader("Content-Type", "application/json");
-  
-  // Send registration message with proper JSON formatting
-  String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
-  Serial.println("Sending registration message: " + message);
-  
-  int httpCode = http.POST(message);
-  Serial.printf("HTTP Response code: %d\n", httpCode);
-  
-  if (httpCode == HTTP_CODE_OK) {
-    String response = http.getString();
-    Serial.println("Gadget response: " + response);
-    Serial.println("Camera registered successfully with gadget");
-  } else {
-    Serial.printf("Failed to register camera with gadget, error code: %d\n", httpCode);
-    // Try a few more times if failed
-    for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
-      delay(1000);
-      Serial.printf("Retry attempt %d...\n", i + 1);
-      httpCode = http.POST(message);
-      if(httpCode == HTTP_CODE_OK) {
-        String response = http.getString();
-        Serial.println("Gadget response: " + response);
-        Serial.println("Camera registered successfully on retry");
-        break;
-      }
+        // Set resolution to high.
+        cfg.setResolution(modelRes);
+    
+        // Buffer count for image processing.
+        cfg.setBufferCount(2);
+    
+        // Set image quality to 80%.
+        cfg.setJpeg(80);
+    
+        bool ok = Camera.begin(cfg);
+        Serial.println(ok ? "Camera initialization successful" : "Camera initialization failed");
     }
-  }
-  
-  http.end();
 
-  // Initialize PIR sensor pin if using TRIGGER_MODE
-  #ifdef TRIGGER_MODE
-  pinMode(PassiveIR_Pin, INPUT);
-  Serial.println("PIR sensor initialized");
-  #endif
+    // Wi-Fi Configuration
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+    // Wait for Wi-Fi Connection
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {  // 20-second timeout
+        delay(1000);
+        Serial.print(".");
+        attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWi-Fi connected successfully!");
+        Serial.print("ESP32-CAM IP Address: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println("\n[ERROR] Wi-Fi connection failed! Restarting...");
+        delay(5000);
+        ESP.restart();
+    }
+
+    // Set up HTTP server endpoints
+    server.on("/", HTTP_GET, handleRoot);
+    server.on("/capture", HTTP_GET, handleCapture);
+    
+    server.begin();
+    Serial.println("HTTP server started");
+
+    // Register with gadget after WiFi connection
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
+        String url = "http://" + String(GADGET_IP) + "/person_detected";
+        
+        Serial.println("\nRegistering camera with gadget...");
+        Serial.println("Camera URL: [" + cameraUrl + "]");
+        Serial.println("Gadget URL: [" + url + "]");
+        
+        if (!http.begin(url)) {
+            Serial.println("Failed to begin HTTP connection to gadget");
+            return;
+        }
+        
+        http.addHeader("Content-Type", "application/json");
+        http.setTimeout(10000);  // 10 second timeout
+        
+        // Send registration message with proper JSON formatting
+        String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+        Serial.println("Sending registration message: " + message);
+        
+        int httpCode = http.POST(message);
+        Serial.printf("HTTP Response code: %d\n", httpCode);
+        
+        if (httpCode == HTTP_CODE_OK) {
+            String response = http.getString();
+            Serial.println("Gadget response: " + response);
+            Serial.println("Camera registered successfully with gadget");
+        } else {
+            Serial.printf("Failed to register camera with gadget, error code: %d\n", httpCode);
+            // Try a few more times if failed
+            for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
+                delay(1000);
+                Serial.printf("Retry attempt %d...\n", i + 1);
+                httpCode = http.POST(message);
+                if(httpCode == HTTP_CODE_OK) {
+                    String response = http.getString();
+                    Serial.println("Gadget response: " + response);
+                    Serial.println("Camera registered successfully on retry");
+                    break;
+                }
+            }
+        }
+        
+        http.end();
+    }
+
+    // Initialize PIR sensor pin if using TRIGGER_MODE
+    #ifdef TRIGGER_MODE
+    pinMode(PassiveIR_Pin, INPUT);
+    Serial.println("PIR sensor initialized");
+    #endif
 }
 
 // Main loop that continously listens for client requests.
 void loop()
 {
-  server.handleClient();
-  
-  /* // Check PIR sensor (if connected)
-  static bool lastPIRState = false;
-  bool pirState = digitalRead(PassiveIR_Pin);
-  
-  if (pirState != lastPIRState) {
-    if (pirState == HIGH) {
-      Serial.println("Motion detected!");
-      notifyGadget();  // This will also trigger image capture
+    // Check Wi-Fi Connection and Reconnect if Disconnected
+    static unsigned long lastWiFiCheck = 0;
+    if (millis() - lastWiFiCheck > 10000) {  // Check every 10 seconds
+        lastWiFiCheck = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
+            WiFi.disconnect();
+            WiFi.reconnect();
+            int attempts = 0;
+            while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+                delay(1000);
+                Serial.print(".");
+                attempts++;
+            }
+
+            if (WiFi.status() == WL_CONNECTED) {
+                Serial.println("\nWi-Fi reconnected successfully!");
+            } else {
+                Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
+                delay(5000);
+                ESP.restart();
+            }
+        }
     }
-    lastPIRState = pirState;
-  }
-  */
-  // For testing without PIR sensor, use timer-based detection
-  #ifndef TRIGGER_MODE
-  static unsigned long lastDetection = 0;
-  unsigned long currentMillis = millis();
-  
-  if (currentMillis - lastDetection > 10000) {  // Every 10 seconds
-    Serial.println("\n----------------------------");
-    Serial.println("Test: Simulating motion detection");
-    Serial.println("----------------------------");
-    notifyGadget();  // This will trigger person detection and image capture
-    lastDetection = currentMillis;
-  }
-  
-  // Small delay to prevent overwhelming the system
-  delay(100);
+
+    server.handleClient();
+    
+    // For testing without PIR sensor, use timer-based detection
+    #ifndef TRIGGER_MODE
+    static unsigned long lastDetection = 0;
+    unsigned long currentMillis = millis();
+    
+    if (currentMillis - lastDetection > 10000) {  // Every 10 seconds
+        if (WiFi.status() == WL_CONNECTED) {  // Only notify if WiFi is connected
+            Serial.println("\n----------------------------");
+            Serial.println("Test: Simulating motion detection");
+            Serial.println("----------------------------");
+            notifyGadget();
+        }
+        lastDetection = currentMillis;
+    }
+    #endif
+    
+    // Small delay to prevent overwhelming the system
+    delay(100);
 }
 
 // -----------------------------------------------------------------

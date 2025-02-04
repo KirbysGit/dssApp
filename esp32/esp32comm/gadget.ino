@@ -32,8 +32,11 @@
 
   // PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
   // MUST USE 2.4GHz wifi band.
-  const char* WIFI_SSID = "mi telefono";
-  const char* WIFI_PASS = "password";
+  // const char* WIFI_SSID = "mi telefono";
+  // const char* WIFI_PASS = "password";
+
+  const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
+  const char* WIFI_PASS = "goodlife";
 
   // Fill with Node IP address, prob dont need anymore since our code constantly monitors the network.
   // May need for sending alarm noticiations.
@@ -287,7 +290,7 @@
     Serial.println("Time: " + String(millis()));
     Serial.println("Sender IP: " + server.client().remoteIP().toString());
     
-    // Get the raw POST data
+    // Print raw POST data
     String postBody = server.arg("plain");
     Serial.println("\nReceived POST data: [" + postBody + "]");
     Serial.println("POST data length: " + String(postBody.length()));
@@ -297,11 +300,11 @@
     DeserializationError error = deserializeJson(doc, postBody);
 
     if (error) {
-      Serial.print("JSON parsing failed! Error: ");
-      Serial.println(error.c_str());
-      Serial.println("==============================================\n");
-      server.send(400, "text/plain", "Invalid JSON format");
-      return;
+        Serial.print("[ERROR] JSON parsing failed! Error: ");
+        Serial.println(error.c_str());
+        Serial.println("==============================================\n");
+        server.send(400, "text/plain", "Invalid JSON format");
+        return;
     }
 
     // Extract values from JSON
@@ -312,142 +315,34 @@
     Serial.println("Camera URL: [" + String(cameraUrl ? cameraUrl : "null") + "]");
     Serial.println("Node Name: [" + String(nodeName ? nodeName : "null") + "]");
 
-    if (cameraUrl && strlen(cameraUrl) > 0) {
-      // Update or add camera to our list
-      bool found = false;
-      for (int i = 0; i < numCameras; i++) {
+    if (!cameraUrl || strlen(cameraUrl) == 0 || !nodeName || strlen(nodeName) == 0) {
+        Serial.println("[ERROR] Missing or empty camera URL or node name");
+        server.send(400, "text/plain", "Missing or empty camera URL or node name");
+        return;
+    }
+
+    // Update or add camera to our list
+    bool found = false;
+    for (int i = 0; i < numCameras; i++) {
         if (cameras[i].name == nodeName) {
-          cameras[i].url = cameraUrl;
-          cameras[i].lastSeen = millis();
-          found = true;
-          Serial.printf("Updated existing camera %s with URL %s\n", nodeName, cameraUrl);
-          break;
+            cameras[i].url = cameraUrl;
+            cameras[i].lastSeen = millis();
+            found = true;
+            Serial.printf("Updated existing camera %s with URL %s\n", nodeName, cameraUrl);
+            break;
         }
-      }
-      
-      if (!found && numCameras < MAX_CAMERAS) {
+    }
+    
+    if (!found && numCameras < MAX_CAMERAS) {
         cameras[numCameras].url = cameraUrl;
         cameras[numCameras].name = nodeName;
         cameras[numCameras].lastSeen = millis();
         numCameras++;
         Serial.printf("Added new camera %s with URL %s, total cameras: %d\n", 
                     nodeName, cameraUrl, numCameras);
-      }
-      
-      // Set person detected flag
-      personDetected = true;
-      Serial.println("\nPerson detection flag set to TRUE");
-      
-      // Blink LED to indicate detection
-      digitalWrite(LED, HIGH);
-      delay(100);
-      digitalWrite(LED, LOW);
-      
-      // Fetch the latest image from this camera
-      HTTPClient http;
-      WiFiClient client;
-      
-      Serial.printf("\nAttempting to fetch image from %s\n", cameraUrl);
-      
-      // Try up to 3 times to connect and fetch the image
-      bool success = false;
-      for(int attempt = 0; attempt < 3 && !success; attempt++) {
-        if(attempt > 0) {
-          Serial.printf("Retry attempt %d...\n", attempt + 1);
-          delay(1000);
-        }
-        
-        if (!http.begin(client, cameraUrl)) {
-          Serial.println("Failed to begin HTTP connection to camera");
-          continue;
-        }
-        
-        // Set timeout for connection and data transfer
-        http.setTimeout(5000);
-        
-        int httpCode = http.GET();
-        Serial.printf("HTTP GET response code: %d\n", httpCode);
-        
-        if (httpCode == HTTP_CODE_OK) {
-          int len = http.getSize();
-          Serial.printf("Image size: %d bytes\n", len);
-          
-          if(len <= 0) {
-            Serial.println("Invalid image size received");
-            http.end();
-            continue;
-          }
-          
-          // Allocate buffer for the image
-          if (lastImage != nullptr) {
-            delete[] lastImage;
-            lastImage = nullptr;
-          }
-          
-          lastImage = new uint8_t[len];
-          
-          if (lastImage != nullptr) {
-            WiFiClient* stream = http.getStreamPtr();
-            size_t written = 0;
-            
-            // Read data in chunks
-            uint8_t buffer[1024];
-            unsigned long timeout = millis();  // Initialize timeout counter
-            
-            while(written < len) {
-              size_t available = stream->available();
-              if(available) {
-                size_t bytesToRead = min(available, min((size_t)1024, len - written));
-                size_t bytesRead = stream->readBytes(buffer, bytesToRead);
-                memcpy(lastImage + written, buffer, bytesRead);
-                written += bytesRead;
-                
-                if(written % 1024 == 0) {
-                  Serial.printf("Downloaded %d of %d bytes\n", written, len);
-                }
-              }
-              yield();  // Allow other processes to run
-              
-              // Check for timeout
-              if(millis() - timeout > 10000) {  // 10 second timeout
-                Serial.println("Download timeout");
-                break;
-              }
-            }
-            
-            if (written == len) {
-              lastImageSize = len;
-              Serial.printf("Successfully stored image: %d bytes\n", len);
-              success = true;
-            } else {
-              delete[] lastImage;
-              lastImage = nullptr;
-              Serial.printf("Failed to read complete image. Expected %d bytes, got %d bytes\n", 
-                          len, written);
-            }
-          } else {
-            Serial.printf("Failed to allocate %d bytes for image\n", len);
-          }
-        } else {
-          Serial.printf("Failed to fetch image, HTTP code: %d\n", httpCode);
-          if(httpCode < 0) {
-            Serial.printf("Error: %s\n", http.errorToString(httpCode).c_str());
-          }
-        }
-        http.end();
-      }
-      
-      if(!success) {
-        Serial.println("Failed to fetch image after all attempts");
-      }
-      
-      Serial.println("\nSending response to node...");
-      server.send(200, "text/plain", "Detection recorded");
-    } else {
-      Serial.println("Missing or invalid camera URL in JSON");
-      server.send(400, "text/plain", "Missing or invalid camera URL");
     }
     
+    server.send(200, "text/plain", "Detection recorded");
     Serial.println("==============================================\n");
   }
 
@@ -519,211 +414,106 @@
     // Start serial communication
     Serial.begin(115200);
     Serial.println("--------------------------------");
-    Serial.println("Serial communication starting...");
+    Serial.println("Starting ESP32-S3 Gadget...");
     Serial.println("--------------------------------");
 
     // Configure wifi connection.
-    WiFi.persistent(false); 
     WiFi.mode(WIFI_STA);
-    WiFi.disconnect();  // Disconnect from any previous connections
-    delay(1000);  // Give it time to disconnect
-    
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(WIFI_SSID);
-    
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
     // Wait for wifi to connect
     int attempts = 0;
-
-    // Wait for wifi to connect.
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) 
-    {
-      delay(1000);
-      Serial.print("WiFi Status: ");
-      switch(WiFi.status()) {
-        case WL_IDLE_STATUS:
-          Serial.println("IDLE"); break;
-        case WL_NO_SSID_AVAIL:
-          Serial.println("NO SSID AVAILABLE"); break;
-        case WL_SCAN_COMPLETED:
-          Serial.println("SCAN COMPLETED"); break;
-        case WL_CONNECTED:
-          Serial.println("CONNECTED"); break;
-        case WL_CONNECT_FAILED:
-          Serial.println("CONNECT FAILED"); break;
-        case WL_CONNECTION_LOST:
-          Serial.println("CONNECTION LOST"); break;
-        case WL_DISCONNECTED:
-          Serial.println("DISCONNECTED"); break;
-        default:
-          Serial.println(WiFi.status()); break;
-      }
-      attempts++;
-      
-      // Blink LED to show we're trying to connect
-      digitalWrite(LED, !digitalRead(LED));
-      
-      // Every 10 attempts, try reconnecting
-      if(attempts % 10 == 0) {
-        Serial.println("Trying to reconnect...");
-        WiFi.disconnect();
+    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
         delay(1000);
-        WiFi.begin(WIFI_SSID, WIFI_PASS);
-      }
+        Serial.print(".");
+        attempts++;
+        
+        // Blink LED to show we're trying to connect
+        digitalWrite(LED, !digitalRead(LED));
     }
 
     // Wifi connection result
-    if (WiFi.status() == WL_CONNECTED) 
-    {
-      digitalWrite(LED, HIGH);  // Turn LED on when connected
-      Serial.println("\n----------------------------");
-      Serial.println("WiFi Connected Successfully!");
-      Serial.print("IP Address: ");
-      Serial.println(WiFi.localIP());
-      Serial.print("Signal Strength (RSSI): ");
-      Serial.print(WiFi.RSSI());
-      Serial.println(" dBm");
-      Serial.println("----------------------------\n");
-      
-      // Initialize SPIFFS
-      if (!SPIFFS.begin(true)) {
-        Serial.println("SPIFFS initialization failed!");
-        return;
-      }
+    if (WiFi.status() == WL_CONNECTED) {
+        digitalWrite(LED, HIGH);  // Turn LED on when connected
+        Serial.println("\n----------------------------");
+        Serial.println("WiFi Connected Successfully!");
+        Serial.print("ESP32-S3 IP Address: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("Signal Strength (RSSI): ");
+        Serial.print(WiFi.RSSI());
+        Serial.println(" dBm");
+        Serial.println("----------------------------\n");
+        
+        // Initialize SPIFFS
+        if (!SPIFFS.begin(true)) {
+            Serial.println("[ERROR] SPIFFS initialization failed!");
+            return;
+        }
 
-      // Setup server endpoints
-      server.on("/capture", HTTP_POST, handleCapture);
-      server.on("/latest_image", HTTP_GET, handleGetLatestImage);
-      server.on("/person_status", HTTP_GET, handlePersonStatus);
-      server.on("/person_detected", HTTP_POST, handlePersonDetected);
-      
-      // Start the web server
-      server.begin();
-      Serial.println("HTTP server started");
-      Serial.println("Available endpoints:");
-      Serial.println("GET  /latest_image - Get most recent camera image");
-      Serial.println("GET  /person_status - Check person detection status");
-      Serial.println("POST /person_detected - Receive person detection notifications");
-    } 
-    // Wifi connection fail.
-    else 
-    {
-      digitalWrite(LED, LOW);  // Turn LED off if failed
-      Serial.println("Failed to connect to WiFi after 30 attempts.");
-      Serial.println("Please check your WiFi credentials and router settings.");
-      Serial.println("Restarting in 5 seconds...");
-      delay(5000);
-      ESP.restart();
+        // Setup server endpoints
+        server.on("/capture", HTTP_POST, handleCapture);
+        server.on("/latest_image", HTTP_GET, handleGetLatestImage);
+        server.on("/person_status", HTTP_GET, handlePersonStatus);
+        server.on("/person_detected", HTTP_POST, handlePersonDetected);
+        
+        // Start the web server
+        server.begin();
+        Serial.println("HTTP server started successfully");
+        Serial.println("Available endpoints:");
+        Serial.println("GET  /latest_image - Get most recent camera image");
+        Serial.println("GET  /person_status - Check person detection status");
+        Serial.println("POST /person_detected - Receive person detection notifications");
+    } else {
+        digitalWrite(LED, LOW);  // Turn LED off if failed
+        Serial.println("\n[ERROR] Failed to connect to WiFi after 30 attempts.");
+        Serial.println("Please check your WiFi credentials and router settings.");
+        Serial.println("Restarting in 5 seconds...");
+        delay(5000);
+        ESP.restart();
     }
   }
 
   // Main loop that continously listens for client requests.
   void loop()
   {
+    // Check Wi-Fi Connection and Reconnect if Disconnected
+    static unsigned long lastWiFiCheck = 0;
+    if (millis() - lastWiFiCheck > 10000) {  // Check every 10 seconds
+        lastWiFiCheck = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
+            digitalWrite(LED, LOW);  // Turn LED off while disconnected
+            WiFi.disconnect();
+            WiFi.reconnect();
+            int attempts = 0;
+            while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+                delay(1000);
+                Serial.print(".");
+                attempts++;
+                // Blink LED while trying to reconnect
+                digitalWrite(LED, !digitalRead(LED));
+            }
+
+            if (WiFi.status() == WL_CONNECTED) {
+                Serial.println("\nWi-Fi reconnected successfully!");
+                digitalWrite(LED, HIGH);  // Turn LED back on when connected
+            } else {
+                Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
+                delay(5000);
+                ESP.restart();
+            }
+        }
+    }
+
     // Handle incoming HTTP requests
     server.handleClient();
     
     // Blink LED occasionally to show the device is running
     static unsigned long lastBlink = 0;
-    if (millis() - lastBlink > 2000) {
-      digitalWrite(LED, !digitalRead(LED));
-      lastBlink = millis();
+    if (millis() - lastBlink > 2000 && WiFi.status() == WL_CONNECTED) {
+        digitalWrite(LED, !digitalRead(LED));
+        lastBlink = millis();
     }
-
-    // handleImageUpload();
-
-    // FOR FUTURE USE TO SCALE MESSAGE HANDLING...
-    // Check for requests from allowed IP addresses
-    // if (server.client().remoteIP() in allowedIPs) 
-    // {
-    //   // Check for request type and call the appropriate handler
-    //   if (server.hasArg("type")) 
-    //   {
-    //     String requestType = server.arg("type");
-    //     if (requestType == "image_upload") 
-    //     {
-    //       handleImageUpload();
-    //     } 
-        
-    //     else if (requestType == "get_data") 
-    //     {
-    //       handleGetData();
-    //     }
-
-    //     else if (requestType == "control_device") 
-    //     {
-    //       handleControlDevice();
-    //     }
-        
-    //     else if (requestType == "trigger_alarm") 
-    //     {
-    //       handleTriggerAlarm();
-    //     } 
-        
-    //     else if (requestType == "get_status") 
-    //     {
-    //       handleGetStatus();
-    //     }
-    //   }
-    // }
-
-    // Check for alarm being triggered from Nodes (active IR sensor or heartbeat dies).
-    // if (/* Check pin for active IR sensor or heartbeat signal from a node */) 
-    // {
-    //   // Trigger alarm (e.g., sound buzzer or send notification)
-    //   Serial.println("Alarm triggered from a node!");
-    // }
-
-    // Check for image request from mobile app.
-    // if (/* Check for image request from mobile app */) 
-    // {
-    //   // Capture an image using the ESP32-CAM library
-    //   // Send the captured image data back to the mobile app
-    // }
-    
-    // Check for turn off alarm from mobile app.
-    // if (/* Check for turn off alarm command from mobile app */) 
-    // {
-    //   // Turn off alarm (e.g., stop buzzer or send notification)
-    //   Serial.println("Alarm turned off from mobile app!");
-    //   // Write a function to turn off the alarm.
-    // }
-
-    // Check for trigger alarm from mobile app.
-    // if (/* Check for trigger alarm command from mobile app */) 
-    // {
-    //   // Trigger alarm (e.g., sound buzzer or send notification)
-    //   Serial.println("Alarm triggered from mobile app!");
-    //   // Write a function to sound the alarm.
-    // }
-    
-    // Check for Switch 1 (Trigger Alarm) --> Active Low
-    // if (digitalRead(TriggerAlarm) == LOW)
-    // {
-    //   // Send message to all nodes triggering the alarm
-    //   // Write a function to sound the alarm.
-    // }
-
-    // Check for Switch 2 (Turn on Lights).
-    // if (digitalRead(TurnOnLights) == LOW)
-    // {
-    //   // Send message to all nodes to turn on the lights.
-    // }
-
-    // Check for Switch 3 (Turn off Alarm).
-    // if (digitalRead(TurnOffAlarm) == LOW)
-    // {
-    //   // Send message to turn off the alarm.
-    //   // Write a function to turn off the alarm.
-    // }
-
-    // Check for Switch 4 (Turn off Gadget).
-    // if (digitalRead(TurnOffGadget) == LOW)
-    // {
-    //   // Turn off the Gadget.
-    //   // Potentially sleep mode.
-    // }
   }
 
   // -----------------------------------------------------------------
