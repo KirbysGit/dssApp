@@ -190,7 +190,7 @@ bool initCamera() {
     return true;
 }
 
-// Capture and send image when PIR detects motion.
+// Modify captureAndSendImage() to use multipart/form-data
 void captureAndSendImage() 
 {
     // Ensure Wi-Fi is connected
@@ -275,14 +275,8 @@ void captureAndSendImage()
         return;
     }
 
-    // Try sending raw JPEG first
-    bool success = sendRawJPEG(client, imageData, imageSize);
-    
-    // If raw JPEG fails, try Base64 encoding
-    if (!success) {
-        Serial.println("\nRetrying with Base64 encoding...");
-        success = sendBase64Image(client, imageData, imageSize);
-    }
+    // Send image using multipart/form-data
+    bool success = sendMultipartImage(client, imageData, imageSize);
 
     // Clean up
     client.stop();
@@ -291,33 +285,49 @@ void captureAndSendImage()
     Serial.println("====================================\n");
 }
 
-// Helper function to send raw JPEG data
-bool sendRawJPEG(WiFiClient& client, uint8_t* imageData, size_t imageSize) {
-    // Build the HTTP header with explicit Content-Type and proper formatting
-    String head = "POST /capture HTTP/1.1\r\n";
-    head += "Host: " + String(GADGET_IP) + "\r\n";
-    head += "Content-Type: image/jpeg\r\n";
-    head += "Content-Length: " + String(imageSize) + "\r\n";
-    head += "Connection: close\r\n";
-    head += "\r\n";  // Empty line to separate headers from body
-
-    // Debug headers
-    Serial.println("\nSending HTTP headers (Raw JPEG):");
-    Serial.println(head.substring(0, head.length() - 2));  // Don't print the \r\n
+// New function to send image using multipart/form-data
+bool sendMultipartImage(WiFiClient& client, uint8_t* imageData, size_t imageSize) {
+    const String boundary = "ESP32CAMBoundary";
+    const String CRLF = "\r\n";
     
-    // Send the headers
-    size_t headersSent = client.print(head);
-    if (headersSent != head.length()) {
-        Serial.printf("[ERROR] Failed to send complete headers. Sent %d/%d bytes\n", 
-                     headersSent, head.length());
+    // Calculate Content-Length
+    String bodyStart = 
+        "--" + boundary + CRLF +
+        "Content-Disposition: form-data; name=\"image\"; filename=\"esp32cam.jpg\"" + CRLF +
+        "Content-Type: image/jpeg" + CRLF + CRLF;
+        
+    String bodyEnd = CRLF + "--" + boundary + "--" + CRLF;
+    
+    size_t totalLength = bodyStart.length() + imageSize + bodyEnd.length();
+    
+    // Build and send headers
+    String headers = 
+        "POST /capture HTTP/1.1" + CRLF +
+        "Host: " + String(GADGET_IP) + CRLF +
+        "Content-Length: " + String(totalLength) + CRLF +
+        "Content-Type: multipart/form-data; boundary=" + boundary + CRLF +
+        "Connection: close" + CRLF + CRLF;
+    
+    Serial.println("\nSending HTTP headers:");
+    Serial.println(headers);
+    
+    if (client.print(headers) != headers.length()) {
+        Serial.println("[ERROR] Failed to send headers");
         return false;
     }
     
-    // Send the image data in chunks
+    // Send multipart body start
+    Serial.println("Sending multipart body start...");
+    if (client.print(bodyStart) != bodyStart.length()) {
+        Serial.println("[ERROR] Failed to send body start");
+        return false;
+    }
+    
+    // Send image data in chunks
     const size_t chunkSize = 1024;
     size_t bytesSent = 0;
     
-    Serial.printf("\nStarting to send %d bytes of raw JPEG data...\n", imageSize);
+    Serial.printf("Starting to send %d bytes of image data...\n", imageSize);
     
     while (bytesSent < imageSize) {
         size_t bytesToSend = min(chunkSize, imageSize - bytesSent);
@@ -334,60 +344,14 @@ bool sendRawJPEG(WiFiClient& client, uint8_t* imageData, size_t imageSize) {
                         bytesSent, imageSize, 
                         (bytesSent * 100.0) / imageSize);
         }
-        yield();
+        yield();  // Allow background tasks to run
     }
     
-    return waitForResponse(client);
-}
-
-// Helper function to send Base64 encoded image
-bool sendBase64Image(WiFiClient& client, uint8_t* imageData, size_t imageSize) {
-    // Convert image to Base64
-    String base64Image = base64::encode(imageData, imageSize);
-    size_t encodedLen = base64Image.length();
-    
-    // Build HTTP headers for Base64
-    String head = "POST /capture HTTP/1.1\r\n";
-    head += "Host: " + String(GADGET_IP) + "\r\n";
-    head += "Content-Type: text/plain\r\n";  // Base64 encoded data
-    head += "Content-Length: " + String(encodedLen) + "\r\n";
-    head += "X-Image-Format: base64\r\n";  // Custom header to indicate encoding
-    head += "Connection: close\r\n";
-    head += "\r\n";
-
-    // Debug headers
-    Serial.println("\nSending HTTP headers (Base64):");
-    Serial.println(head.substring(0, head.length() - 2));
-    
-    // Send headers
-    if (client.print(head) != head.length()) {
-        Serial.println("[ERROR] Failed to send Base64 headers");
+    // Send multipart body end
+    Serial.println("Sending multipart body end...");
+    if (client.print(bodyEnd) != bodyEnd.length()) {
+        Serial.println("[ERROR] Failed to send body end");
         return false;
-    }
-    
-    // Send Base64 data in chunks
-    const size_t chunkSize = 1024;
-    size_t bytesSent = 0;
-    
-    Serial.printf("\nStarting to send %d bytes of Base64 data...\n", encodedLen);
-    
-    while (bytesSent < encodedLen) {
-        size_t bytesToSend = min(chunkSize, encodedLen - bytesSent);
-        String chunk = base64Image.substring(bytesSent, bytesSent + bytesToSend);
-        size_t sent = client.print(chunk);
-        
-        if (sent == 0) {
-            Serial.println("[ERROR] Failed to send Base64 chunk");
-            return false;
-        }
-        
-        bytesSent += sent;
-        if (bytesSent % 4096 == 0) {
-            Serial.printf("Sent %d/%d bytes (%.1f%%)\n", 
-                        bytesSent, encodedLen, 
-                        (bytesSent * 100.0) / encodedLen);
-        }
-        yield();
     }
     
     return waitForResponse(client);
