@@ -26,6 +26,7 @@
 #include <HTTPClient.h>
 #include <esp_camera.h>
 #include <esp_heap_caps.h>
+#include "base64.h"
 
 // Photo capture triggered by GPIO pin rising/falling.
 // #define TRIGGER_MODE  // Comment out to enable test mode simulation
@@ -112,10 +113,10 @@ bool initCamera() {
     Config cfg;
     cfg.setPins(pins::AiThinker);
     
-    // Try lower resolution first
+    // Ensure we explicitly set the resolution to prevent incorrect defaults
     cfg.setResolution(Resolution::find(320, 240));  // QVGA resolution
-    cfg.setBufferCount(2);
-    cfg.setJpeg(80);
+    cfg.setBufferCount(1);  // Reduce memory usage
+    cfg.setJpeg(10);  // Lower quality for better compression
     
     bool success = Camera.begin(cfg);
     if (!success) {
@@ -127,27 +128,64 @@ bool initCamera() {
         return false;
     }
     
-    Serial.println("[INFO] Camera initialized successfully!");
-    
-    // Get current camera settings
+    // Force the correct resolution and settings after initialization
     sensor_t * s = esp_camera_sensor_get();
     if (s) {
-        Serial.printf("Resolution: %dx%d\n", s->status.framesize, s->status.framesize);
-        Serial.printf("Quality: %d\n", s->status.quality);
+        s->set_framesize(s, FRAMESIZE_QVGA);    // Force 320x240
+        s->set_quality(s, 10);                   // Lower quality = better compression
+        s->set_brightness(s, 1);                 // Increase brightness slightly
+        s->set_saturation(s, 0);                 // Normal saturation
+        s->set_contrast(s, 0);                   // Normal contrast
+        s->set_special_effect(s, 0);             // No special effects
+        s->set_wb_mode(s, 0);                    // Auto White Balance
+        s->set_whitebal(s, 1);                   // Enable white balance
+        s->set_awb_gain(s, 1);                   // Enable auto white balance gain
+        s->set_exposure_ctrl(s, 1);              // Enable auto exposure
+        s->set_aec2(s, 1);                       // Enable auto exposure (DSP)
+        s->set_gain_ctrl(s, 1);                  // Enable auto gain
+        s->set_raw_gma(s, 1);                    // Enable auto gamma correction
+        s->set_lenc(s, 1);                       // Enable lens correction
+        
+        Serial.println("\n[INFO] Camera settings applied:");
+        Serial.printf("Resolution: QVGA (320x240)\n");
+        Serial.printf("Quality: 10\n");
+        Serial.printf("Free PSRAM: %d bytes\n", ESP.getFreePsram());
+    } else {
+        Serial.println("[ERROR] Failed to get sensor settings!");
+        return false;
     }
     
-    // Test capture
+    // Test capture with new settings
+    Serial.println("\nPerforming test capture...");
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb) {
-        Serial.printf("[INFO] Test capture successful! Size: %d bytes\n", fb->len);
+        Serial.printf("[INFO] Test capture successful!\n");
+        Serial.printf("Image Size: %d bytes\n", fb->len);
         Serial.printf("Resolution: %dx%d\n", fb->width, fb->height);
         Serial.printf("Format: %d (0=JPEG)\n", fb->format);
+        
+        // Verify image format
+        if (fb->format != PIXFORMAT_JPEG) {
+            Serial.println("[ERROR] Capture format is not JPEG!");
+            esp_camera_fb_return(fb);
+            return false;
+        }
+        
+        // Verify resolution
+        if (fb->width != 320 || fb->height != 240) {
+            Serial.printf("[ERROR] Incorrect resolution: %dx%d (expected 320x240)\n", 
+                        fb->width, fb->height);
+            esp_camera_fb_return(fb);
+            return false;
+        }
+        
         esp_camera_fb_return(fb);
     } else {
         Serial.println("[ERROR] Test capture failed!");
         return false;
     }
     
+    Serial.println("[SUCCESS] Camera initialization complete!");
     Serial.println("======================================\n");
     return true;
 }
@@ -171,6 +209,22 @@ void captureAndSendImage()
         
         fb = esp_camera_fb_get();
         if (fb) {
+            // Verify image format and size
+            if (fb->format != PIXFORMAT_JPEG || fb->len < 100) {
+                Serial.println("[ERROR] Invalid capture format or size too small");
+                esp_camera_fb_return(fb);
+                fb = nullptr;
+                continue;
+            }
+            
+            // Verify resolution
+            if (fb->width != 320 || fb->height != 240) {
+                Serial.printf("[ERROR] Incorrect resolution: %dx%d\n", fb->width, fb->height);
+                esp_camera_fb_return(fb);
+                fb = nullptr;
+                continue;
+            }
+            
             Serial.println("[INFO] Image captured successfully!");
             break;
         }
@@ -197,8 +251,8 @@ void captureAndSendImage()
     size_t imageSize = fb->len;
 
     Serial.printf("Captured image size: %d bytes\n", imageSize);
-    Serial.printf("Image format: %d\n", fb->format);
-    Serial.printf("Image width: %d, height: %d\n", fb->width, fb->height);
+    Serial.printf("Image format: %d (0=JPEG)\n", fb->format);
+    Serial.printf("Resolution: %dx%d\n", fb->width, fb->height);
     Serial.print("First 32 bytes: ");
     for (int i = 0; i < min(32, (int)imageSize); i++) {
         Serial.printf("%02X ", imageData[i]);
@@ -221,16 +275,34 @@ void captureAndSendImage()
         return;
     }
 
+    // Try sending raw JPEG first
+    bool success = sendRawJPEG(client, imageData, imageSize);
+    
+    // If raw JPEG fails, try Base64 encoding
+    if (!success) {
+        Serial.println("\nRetrying with Base64 encoding...");
+        success = sendBase64Image(client, imageData, imageSize);
+    }
+
+    // Clean up
+    client.stop();
+    esp_camera_fb_return(fb);
+    Serial.printf("Free PSRAM after cleanup: %d bytes\n", ESP.getFreePsram());
+    Serial.println("====================================\n");
+}
+
+// Helper function to send raw JPEG data
+bool sendRawJPEG(WiFiClient& client, uint8_t* imageData, size_t imageSize) {
     // Build the HTTP header with explicit Content-Type and proper formatting
     String head = "POST /capture HTTP/1.1\r\n";
     head += "Host: " + String(GADGET_IP) + "\r\n";
-    head += "Content-Type: image/jpeg\r\n";  // Explicitly set Content-Type
+    head += "Content-Type: image/jpeg\r\n";
     head += "Content-Length: " + String(imageSize) + "\r\n";
     head += "Connection: close\r\n";
     head += "\r\n";  // Empty line to separate headers from body
 
     // Debug headers
-    Serial.println("\nSending HTTP headers:");
+    Serial.println("\nSending HTTP headers (Raw JPEG):");
     Serial.println(head.substring(0, head.length() - 2));  // Don't print the \r\n
     
     // Send the headers
@@ -238,16 +310,14 @@ void captureAndSendImage()
     if (headersSent != head.length()) {
         Serial.printf("[ERROR] Failed to send complete headers. Sent %d/%d bytes\n", 
                      headersSent, head.length());
-        client.stop();
-        esp_camera_fb_return(fb);
-        return;
+        return false;
     }
     
     // Send the image data in chunks
     const size_t chunkSize = 1024;
     size_t bytesSent = 0;
     
-    Serial.printf("\nStarting to send %d bytes of image data...\n", imageSize);
+    Serial.printf("\nStarting to send %d bytes of raw JPEG data...\n", imageSize);
     
     while (bytesSent < imageSize) {
         size_t bytesToSend = min(chunkSize, imageSize - bytesSent);
@@ -255,23 +325,76 @@ void captureAndSendImage()
         
         if (sent == 0) {
             Serial.println("[ERROR] Failed to send data chunk");
-            client.stop();
-            esp_camera_fb_return(fb);
-            return;
+            return false;
         }
         
         bytesSent += sent;
-        if (bytesSent % 4096 == 0) {  // Print progress every 4KB
+        if (bytesSent % 4096 == 0) {
             Serial.printf("Sent %d/%d bytes (%.1f%%)\n", 
                         bytesSent, imageSize, 
                         (bytesSent * 100.0) / imageSize);
         }
-        yield();  // Allow background tasks to run
+        yield();
     }
     
-    Serial.printf("Completed sending %d bytes\n", bytesSent);
+    return waitForResponse(client);
+}
 
-    // Wait for server response with timeout
+// Helper function to send Base64 encoded image
+bool sendBase64Image(WiFiClient& client, uint8_t* imageData, size_t imageSize) {
+    // Convert image to Base64
+    String base64Image = base64::encode(imageData, imageSize);
+    size_t encodedLen = base64Image.length();
+    
+    // Build HTTP headers for Base64
+    String head = "POST /capture HTTP/1.1\r\n";
+    head += "Host: " + String(GADGET_IP) + "\r\n";
+    head += "Content-Type: text/plain\r\n";  // Base64 encoded data
+    head += "Content-Length: " + String(encodedLen) + "\r\n";
+    head += "X-Image-Format: base64\r\n";  // Custom header to indicate encoding
+    head += "Connection: close\r\n";
+    head += "\r\n";
+
+    // Debug headers
+    Serial.println("\nSending HTTP headers (Base64):");
+    Serial.println(head.substring(0, head.length() - 2));
+    
+    // Send headers
+    if (client.print(head) != head.length()) {
+        Serial.println("[ERROR] Failed to send Base64 headers");
+        return false;
+    }
+    
+    // Send Base64 data in chunks
+    const size_t chunkSize = 1024;
+    size_t bytesSent = 0;
+    
+    Serial.printf("\nStarting to send %d bytes of Base64 data...\n", encodedLen);
+    
+    while (bytesSent < encodedLen) {
+        size_t bytesToSend = min(chunkSize, encodedLen - bytesSent);
+        String chunk = base64Image.substring(bytesSent, bytesSent + bytesToSend);
+        size_t sent = client.print(chunk);
+        
+        if (sent == 0) {
+            Serial.println("[ERROR] Failed to send Base64 chunk");
+            return false;
+        }
+        
+        bytesSent += sent;
+        if (bytesSent % 4096 == 0) {
+            Serial.printf("Sent %d/%d bytes (%.1f%%)\n", 
+                        bytesSent, encodedLen, 
+                        (bytesSent * 100.0) / encodedLen);
+        }
+        yield();
+    }
+    
+    return waitForResponse(client);
+}
+
+// Helper function to wait for and process server response
+bool waitForResponse(WiFiClient& client) {
     unsigned long timeout = millis();
     bool responseReceived = false;
     String responseStatus = "";
@@ -298,17 +421,14 @@ void captureAndSendImage()
 
     if (!responseReceived) {
         Serial.println("[ERROR] Server response timeout");
-    } else {
-        Serial.println("Server Response:");
-        Serial.println(fullResponse);
-        Serial.println("Response status: " + responseStatus);
+        return false;
     }
 
-    // Clean up
-    client.stop();
-    esp_camera_fb_return(fb);
-    Serial.printf("Free PSRAM after cleanup: %d bytes\n", ESP.getFreePsram());
-    Serial.println("====================================\n");
+    Serial.println("Server Response:");
+    Serial.println(fullResponse);
+    Serial.println("Response status: " + responseStatus);
+    
+    return responseStatus.indexOf("200") > 0;  // Check for HTTP 200 OK
 }
 
 bool checkAlarmNotification() 
