@@ -348,61 +348,112 @@
 
   // Handle direct camera capture
   void handleCapture() {
-    Serial.println("Receiving captured image...");
+    Serial.println("\n========== RECEIVING IMAGE ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Sender IP: " + server.client().remoteIP().toString());
     
-    WiFiClient client = server.client();
+    // Print all headers for debugging
+    Serial.println("\nReceived Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        Serial.printf("Header[%s]: %s\n", 
+                     server.headerName(i).c_str(), 
+                     server.header(i).c_str());
+    }
+    
+    // Verify Content-Type
+    String contentType = server.header("Content-Type");
+    if (contentType.indexOf("image/jpeg") == -1) {
+        Serial.println("[ERROR] Invalid Content-Type: " + contentType);
+        server.send(400, "text/plain", "Invalid Content-Type - expected image/jpeg");
+        return;
+    }
+    
+    // Get and validate Content-Length
     String contentLength = server.header("Content-Length");
-    
-    Serial.println("Content-Length: " + contentLength);
+    Serial.println("\nContent-Length: " + contentLength);
     int imageSize = contentLength.toInt();
     
-    if (imageSize <= 0) {
-      Serial.println("Invalid content length");
-      server.send(400, "text/plain", "Invalid content length");
-      return;
+    if (imageSize <= 0 || imageSize > 150000) {  // Max 150KB for safety
+        Serial.printf("[ERROR] Invalid Content-Length: %d\n", imageSize);
+        server.send(400, "text/plain", "Invalid Content-Length");
+        return;
     }
 
-    // Allocate buffer for the image
+    // Free previous image if it exists
     if (lastImage != nullptr) {
-      delete[] lastImage;
-      lastImage = nullptr;
+        Serial.println("Freeing previous image buffer");
+        delete[] lastImage;
+        lastImage = nullptr;
+        lastImageSize = 0;
     }
     
+    // Allocate buffer for the new image
+    Serial.printf("Allocating %d bytes for image\n", imageSize);
     lastImage = new uint8_t[imageSize];
     if (!lastImage) {
-      Serial.println("Failed to allocate memory");
-      server.send(500, "text/plain", "Server memory error");
-      return;
+        Serial.println("[ERROR] Failed to allocate memory");
+        server.send(500, "text/plain", "Server memory error");
+        return;
     }
 
     // Read the image data
+    WiFiClient client = server.client();
     size_t receivedLength = 0;
     unsigned long timeout = millis() + 10000; // 10 second timeout
+    unsigned long lastProgress = millis();
 
+    Serial.println("\nReceiving image data...");
     while (receivedLength < imageSize && millis() < timeout) {
-      if (client.available()) {
-        lastImage[receivedLength] = client.read();
-        receivedLength++;
-        
-        if (receivedLength % 1024 == 0) {
-          Serial.printf("Received %d bytes of %d\n", receivedLength, imageSize);
+        if (client.available()) {
+            lastImage[receivedLength] = client.read();
+            receivedLength++;
+            
+            // Print progress every 4KB or if no progress update in 2 seconds
+            if (receivedLength % 4096 == 0 || millis() - lastProgress >= 2000) {
+                Serial.printf("Received %d/%d bytes (%.1f%%)\n", 
+                            receivedLength, imageSize,
+                            (receivedLength * 100.0) / imageSize);
+                lastProgress = millis();
+            }
         }
-      }
-      yield();
+        yield();  // Allow background tasks to run
     }
 
+    // Check if we got all the data
     if (receivedLength == imageSize) {
-      lastImageSize = imageSize;
-      personDetected = true;
-      Serial.printf("Successfully received image: %d bytes\n", imageSize);
-      server.send(200, "text/plain", "Image received");
+        // Verify JPEG header
+        if (receivedLength >= 3 && 
+            lastImage[0] == 0xFF && 
+            lastImage[1] == 0xD8 && 
+            lastImage[2] == 0xFF) {
+            
+            lastImageSize = imageSize;
+            personDetected = true;
+            
+            Serial.printf("\nSuccessfully received valid JPEG image: %d bytes\n", imageSize);
+            server.send(200, "text/plain", "Image received successfully");
+            
+            // Blink LED to indicate successful reception
+            digitalWrite(LED, HIGH);
+            delay(100);
+            digitalWrite(LED, LOW);
+        } else {
+            Serial.println("[ERROR] Invalid JPEG format");
+            delete[] lastImage;
+            lastImage = nullptr;
+            lastImageSize = 0;
+            server.send(400, "text/plain", "Invalid JPEG format");
+        }
     } else {
-      delete[] lastImage;
-      lastImage = nullptr;
-      lastImageSize = 0;
-      Serial.println("Failed to receive complete image");
-      server.send(400, "text/plain", "Incomplete image data");
+        Serial.printf("[ERROR] Incomplete image data. Expected %d bytes, got %d bytes\n", 
+                     imageSize, receivedLength);
+        delete[] lastImage;
+        lastImage = nullptr;
+        lastImageSize = 0;
+        server.send(400, "text/plain", "Incomplete image data");
     }
+    
+    Serial.println("====================================\n");
   }
 
   void setup()

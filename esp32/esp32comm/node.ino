@@ -84,80 +84,119 @@ const byte Tamper_Pin = GPIO_NUM_1;
 // Capture and send image when PIR detects motion.
 void captureAndSendImage() 
 {
-  // Capture image using ESP32-CAM library
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb)
-  {
-    Serial.println("Failed to capture image");
-    return;
-  }
+    // Ensure Wi-Fi is connected
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[ERROR] Wi-Fi Disconnected! Cannot send image.");
+        return;
+    }
 
-  // Get image data and size
-  uint8_t* imageData = fb->buf;
-  size_t imageSize = fb->len;
+    // Capture image using ESP32-CAM library
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        Serial.println("[ERROR] Failed to capture image");
+        return;
+    }
 
-  // Debug print
-  Serial.printf("Captured image size: %d bytes\n", imageSize);
-  Serial.print("First 32 bytes of image: ");
-  for (int i = 0; i < min(32, (int)imageSize); i++) {
-    Serial.printf("%02X ", imageData[i]);
-  }
-  Serial.println();
+    uint8_t* imageData = fb->buf;
+    size_t imageSize = fb->len;
 
-  WiFiClient client;
-  
-  Serial.println("Connecting to server...");
-  if (!client.connect(GADGET_IP, 80)) {
-    Serial.println("Connection failed");
+    Serial.printf("Captured image size: %d bytes\n", imageSize);
+    Serial.print("First 32 bytes of image: ");
+    for (int i = 0; i < min(32, (int)imageSize); i++) {
+        Serial.printf("%02X ", imageData[i]);
+    }
+    Serial.println();
+
+    // Verify JPEG header
+    if (imageSize < 3 || imageData[0] != 0xFF || imageData[1] != 0xD8 || imageData[2] != 0xFF) {
+        Serial.println("[ERROR] Invalid JPEG format");
+        esp_camera_fb_return(fb);
+        return;
+    }
+
+    WiFiClient client;
+    Serial.println("Connecting to server...");
+    
+    if (!client.connect(GADGET_IP, 80)) {
+        Serial.println("[ERROR] Connection to gadget failed");
+        esp_camera_fb_return(fb);
+        return;
+    }
+
+    // Build the HTTP header with exact Content-Length
+    String head = "POST /capture HTTP/1.1\r\n";
+    head += "Host: " + String(GADGET_IP) + "\r\n";
+    head += "Content-Type: image/jpeg\r\n";
+    head += "Content-Length: " + String(imageSize) + "\r\n";
+    head += "Connection: close\r\n\r\n";
+
+    // Debug headers
+    Serial.println("\nSending HTTP headers:");
+    Serial.println(head);
+    
+    // Send the headers
+    client.print(head);
+    
+    // Send the image data in chunks
+    const size_t chunkSize = 1024;
+    size_t bytesSent = 0;
+    
+    Serial.printf("Starting to send %d bytes of image data...\n", imageSize);
+    
+    while (bytesSent < imageSize) {
+        size_t bytesToSend = min(chunkSize, imageSize - bytesSent);
+        size_t sent = client.write(imageData + bytesSent, bytesToSend);
+        
+        if (sent == 0) {
+            Serial.println("[ERROR] Failed to send data chunk");
+            client.stop();
+            esp_camera_fb_return(fb);
+            return;
+        }
+        
+        bytesSent += sent;
+        if (bytesSent % 4096 == 0) {  // Print progress every 4KB
+            Serial.printf("Sent %d/%d bytes (%.1f%%)\n", 
+                        bytesSent, imageSize, 
+                        (bytesSent * 100.0) / imageSize);
+        }
+        yield();  // Allow background tasks to run
+    }
+    
+    Serial.printf("Completed sending %d bytes\n", bytesSent);
+
+    // Wait for server response with timeout
+    unsigned long timeout = millis();
+    bool responseReceived = false;
+    String responseStatus = "";
+    
+    while (millis() - timeout < 10000) {  // 10 second timeout
+        if (client.available()) {
+            responseReceived = true;
+            String line = client.readStringUntil('\n');
+            if (responseStatus.isEmpty() && line.startsWith("HTTP/1.1")) {
+                responseStatus = line;
+            }
+            Serial.println("Server: " + line);
+        }
+        
+        if (responseReceived && !client.available()) {
+            break;
+        }
+        
+        yield();
+    }
+
+    if (!responseReceived) {
+        Serial.println("[ERROR] Server response timeout");
+    } else {
+        Serial.println("Response status: " + responseStatus);
+    }
+
+    // Clean up
+    client.stop();
     esp_camera_fb_return(fb);
-    return;
-  }
-
-  // Send HTTP POST request
-  String head = "POST /capture HTTP/1.1\r\n";
-  head += "Host: " + String(GADGET_IP) + "\r\n";
-  head += "Content-Type: image/jpeg\r\n";
-  head += "Content-Length: " + String(imageSize) + "\r\n";
-  head += "Connection: close\r\n\r\n";
-  
-  client.print(head);
-  
-  // Send the image data
-  uint8_t *fbBuf = fb->buf;
-  size_t fbLen = fb->len;
-  for (size_t n=0; n<fbLen; n=n+1024) {
-    if (n+1024 < fbLen) {
-      client.write(fbBuf, 1024);
-      fbBuf += 1024;
-    }
-    else if (fbLen%1024>0) {
-      size_t remainder = fbLen%1024;
-      client.write(fbBuf, remainder);
-    }
-  }
-  
-  // Wait for server response
-  unsigned long timeout = millis();
-  while (client.available() == 0) {
-    if (millis() - timeout > 5000) {
-      Serial.println("Client Timeout!");
-      client.stop();
-      esp_camera_fb_return(fb);
-      return;
-    }
-  }
-
-  // Read server response
-  Serial.println("Server Response:");
-  while (client.available()) {
-    String line = client.readStringUntil('\n');
-    Serial.println(line);
-  }
-
-  // Clean up
-  client.stop();
-  esp_camera_fb_return(fb);
-  Serial.println("Image send attempt completed");
+    Serial.println("Image transfer completed");
 }
 
 bool checkAlarmNotification() 
