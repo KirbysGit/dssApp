@@ -355,21 +355,35 @@
     // Print all headers for debugging
     Serial.println("\nReceived Headers:");
     for (int i = 0; i < server.headers(); i++) {
-        Serial.printf("Header[%s]: %s\n", 
-                     server.headerName(i).c_str(), 
-                     server.header(i).c_str());
+        String headerName = server.headerName(i);
+        String headerValue = server.header(i);
+        Serial.printf("Header[%s]: [%s]\n", headerName.c_str(), headerValue.c_str());
     }
     
     // Verify Content-Type
     String contentType = server.header("Content-Type");
+    if (contentType.isEmpty()) {
+        Serial.println("[ERROR] Missing Content-Type header");
+        server.send(400, "text/plain", "Missing Content-Type header");
+        return;
+    }
+    
+    // Case-insensitive check for image/jpeg
+    contentType.toLowerCase();
     if (contentType.indexOf("image/jpeg") == -1) {
-        Serial.println("[ERROR] Invalid Content-Type: " + contentType);
+        Serial.printf("[ERROR] Invalid Content-Type: [%s]\n", contentType.c_str());
         server.send(400, "text/plain", "Invalid Content-Type - expected image/jpeg");
         return;
     }
     
     // Get and validate Content-Length
     String contentLength = server.header("Content-Length");
+    if (contentLength.isEmpty()) {
+        Serial.println("[ERROR] Missing Content-Length header");
+        server.send(400, "text/plain", "Missing Content-Length header");
+        return;
+    }
+    
     Serial.println("\nContent-Length: " + contentLength);
     int imageSize = contentLength.toInt();
     
@@ -401,9 +415,15 @@
     size_t receivedLength = 0;
     unsigned long timeout = millis() + 10000; // 10 second timeout
     unsigned long lastProgress = millis();
+    bool timeoutOccurred = false;
 
     Serial.println("\nReceiving image data...");
-    while (receivedLength < imageSize && millis() < timeout) {
+    while (receivedLength < imageSize && !timeoutOccurred) {
+        if (millis() > timeout) {
+            timeoutOccurred = true;
+            break;
+        }
+
         if (client.available()) {
             lastImage[receivedLength] = client.read();
             receivedLength++;
@@ -419,6 +439,16 @@
         yield();  // Allow background tasks to run
     }
 
+    if (timeoutOccurred) {
+        Serial.printf("[ERROR] Timeout while receiving data. Got %d/%d bytes\n", 
+                     receivedLength, imageSize);
+        delete[] lastImage;
+        lastImage = nullptr;
+        lastImageSize = 0;
+        server.send(408, "text/plain", "Request timeout");
+        return;
+    }
+
     // Check if we got all the data
     if (receivedLength == imageSize) {
         // Verify JPEG header
@@ -431,6 +461,12 @@
             personDetected = true;
             
             Serial.printf("\nSuccessfully received valid JPEG image: %d bytes\n", imageSize);
+            Serial.print("First 32 bytes: ");
+            for (int i = 0; i < min(32, (int)imageSize); i++) {
+                Serial.printf("%02X ", lastImage[i]);
+            }
+            Serial.println();
+            
             server.send(200, "text/plain", "Image received successfully");
             
             // Blink LED to indicate successful reception
@@ -439,6 +475,12 @@
             digitalWrite(LED, LOW);
         } else {
             Serial.println("[ERROR] Invalid JPEG format");
+            Serial.print("First 32 bytes: ");
+            for (int i = 0; i < min(32, (int)receivedLength); i++) {
+                Serial.printf("%02X ", lastImage[i]);
+            }
+            Serial.println();
+            
             delete[] lastImage;
             lastImage = nullptr;
             lastImageSize = 0;

@@ -100,8 +100,10 @@ void captureAndSendImage()
     uint8_t* imageData = fb->buf;
     size_t imageSize = fb->len;
 
-    Serial.printf("Captured image size: %d bytes\n", imageSize);
-    Serial.print("First 32 bytes of image: ");
+    Serial.printf("\n========== SENDING IMAGE ==========\n");
+    Serial.printf("Time: %lu\n", millis());
+    Serial.printf("Image size: %d bytes\n", imageSize);
+    Serial.print("First 32 bytes: ");
     for (int i = 0; i < min(32, (int)imageSize); i++) {
         Serial.printf("%02X ", imageData[i]);
     }
@@ -115,7 +117,7 @@ void captureAndSendImage()
     }
 
     WiFiClient client;
-    Serial.println("Connecting to server...");
+    Serial.printf("\nConnecting to %s:80...\n", GADGET_IP);
     
     if (!client.connect(GADGET_IP, 80)) {
         Serial.println("[ERROR] Connection to gadget failed");
@@ -123,25 +125,33 @@ void captureAndSendImage()
         return;
     }
 
-    // Build the HTTP header with exact Content-Length
+    // Build the HTTP header with explicit Content-Type and proper formatting
     String head = "POST /capture HTTP/1.1\r\n";
     head += "Host: " + String(GADGET_IP) + "\r\n";
-    head += "Content-Type: image/jpeg\r\n";
+    head += "Content-Type: image/jpeg\r\n";  // Explicitly set Content-Type
     head += "Content-Length: " + String(imageSize) + "\r\n";
-    head += "Connection: close\r\n\r\n";
+    head += "Connection: close\r\n";
+    head += "\r\n";  // Empty line to separate headers from body
 
     // Debug headers
     Serial.println("\nSending HTTP headers:");
-    Serial.println(head);
+    Serial.println(head.substring(0, head.length() - 2));  // Don't print the \r\n
     
     // Send the headers
-    client.print(head);
+    size_t headersSent = client.print(head);
+    if (headersSent != head.length()) {
+        Serial.printf("[ERROR] Failed to send complete headers. Sent %d/%d bytes\n", 
+                     headersSent, head.length());
+        client.stop();
+        esp_camera_fb_return(fb);
+        return;
+    }
     
     // Send the image data in chunks
     const size_t chunkSize = 1024;
     size_t bytesSent = 0;
     
-    Serial.printf("Starting to send %d bytes of image data...\n", imageSize);
+    Serial.printf("\nStarting to send %d bytes of image data...\n", imageSize);
     
     while (bytesSent < imageSize) {
         size_t bytesToSend = min(chunkSize, imageSize - bytesSent);
@@ -169,15 +179,18 @@ void captureAndSendImage()
     unsigned long timeout = millis();
     bool responseReceived = false;
     String responseStatus = "";
+    String fullResponse = "";
     
+    Serial.println("\nWaiting for server response...");
     while (millis() - timeout < 10000) {  // 10 second timeout
         if (client.available()) {
             responseReceived = true;
             String line = client.readStringUntil('\n');
+            fullResponse += line + "\n";
+            
             if (responseStatus.isEmpty() && line.startsWith("HTTP/1.1")) {
                 responseStatus = line;
             }
-            Serial.println("Server: " + line);
         }
         
         if (responseReceived && !client.available()) {
@@ -190,13 +203,15 @@ void captureAndSendImage()
     if (!responseReceived) {
         Serial.println("[ERROR] Server response timeout");
     } else {
+        Serial.println("Server Response:");
+        Serial.println(fullResponse);
         Serial.println("Response status: " + responseStatus);
     }
 
     // Clean up
     client.stop();
     esp_camera_fb_return(fb);
-    Serial.println("Image transfer completed");
+    Serial.println("====================================\n");
 }
 
 bool checkAlarmNotification() 
