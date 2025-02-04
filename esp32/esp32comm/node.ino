@@ -128,14 +128,20 @@ bool initCamera() {
     }
     
     Serial.println("[INFO] Camera initialized successfully!");
-    Serial.printf("Resolution: %dx%d\n", cfg.frame.size.width, cfg.frame.size.height);
-    Serial.printf("JPEG Quality: %d%%\n", cfg.jpeg.quality);
-    Serial.printf("Buffer Count: %d\n", cfg.frame.buffers);
+    
+    // Get current camera settings
+    sensor_t * s = esp_camera_sensor_get();
+    if (s) {
+        Serial.printf("Resolution: %dx%d\n", s->status.framesize, s->status.framesize);
+        Serial.printf("Quality: %d\n", s->status.quality);
+    }
     
     // Test capture
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb) {
         Serial.printf("[INFO] Test capture successful! Size: %d bytes\n", fb->len);
+        Serial.printf("Resolution: %dx%d\n", fb->width, fb->height);
+        Serial.printf("Format: %d (0=JPEG)\n", fb->format);
         esp_camera_fb_return(fb);
     } else {
         Serial.println("[ERROR] Test capture failed!");
