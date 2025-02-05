@@ -485,13 +485,12 @@ void handleCapture() {
     // Clear any existing headers
     server.client().flush();
     
-    // Set headers properly
+    // Set headers properly - only set Content-Length once
     server.sendHeader("Content-Type", "image/jpeg");
-    server.sendHeader("Content-Length", String(fb->len));
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Connection", "close");
     
-    // Send the response code without content
+    // Send the response with content length
     server.setContentLength(fb->len);
     server.send(200);
 

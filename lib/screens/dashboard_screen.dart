@@ -25,8 +25,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime? _lastDetectionTime;
   bool _isLoading = false;
   
+  // Store camera information
+  List<Map<String, dynamic>> _cameras = [];
+  String? _activeCameraUrl;
+  String? _activeCameraName;
+  
   // ESP32 Gadget IP address
-  final String gadgetIp = '172.20.10.8';
+  final String gadgetIp = '192.168.8.151';
 
   @override
   void initState() {
@@ -63,6 +68,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final data = json.decode(response.body);
         bool newDetection = data['personDetected'] ?? false;
         
+        // Update cameras list
+        if (data['cameras'] != null) {
+          _cameras = List<Map<String, dynamic>>.from(data['cameras']);
+          
+          // Find most recently seen camera
+          if (_cameras.isNotEmpty) {
+            var mostRecentCamera = _cameras.reduce((curr, next) => 
+              (curr['lastSeen'] ?? 0) > (next['lastSeen'] ?? 0) ? curr : next
+            );
+            _activeCameraUrl = mostRecentCamera['url'];
+            _activeCameraName = mostRecentCamera['name'];
+          }
+        }
+        
         if (newDetection && !_personDetected) {
           // New person detected, fetch the image
           _lastDetectionTime = DateTime.now();
@@ -90,9 +109,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _fetchLatestImage() async {
+    if (_activeCameraUrl == null) {
+      debugPrint('No active camera URL available');
+      return;
+    }
+
     try {
+      debugPrint('Fetching image from camera: $_activeCameraUrl');
+      
       final response = await http.get(
-        Uri.parse('http://$gadgetIp/latest_image'),
+        Uri.parse(_activeCameraUrl!),
       ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200 && mounted) {
@@ -102,6 +128,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             fit: BoxFit.contain,
           );
         });
+      } else {
+        debugPrint('Failed to fetch image. Status code: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error fetching image: $e');
@@ -124,6 +152,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_activeCameraName != null)
+              Text(
+                'Camera: $_activeCameraName',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            const SizedBox(height: 8),
             Text(
               'Detection Time: ${_lastDetectionTime?.toString() ?? "Unknown"}',
               style: const TextStyle(fontWeight: FontWeight.bold),
@@ -226,6 +260,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       'Last Detection: ${_lastDetectionTime.toString()}',
                                       style: Theme.of(context).textTheme.bodySmall,
                                     ),
+                                  if (_activeCameraName != null)
+                                    Text(
+                                      'Active Camera: $_activeCameraName',
+                                      style: Theme.of(context).textTheme.bodySmall,
+                                    ),
                                 ],
                               ),
                             ),
@@ -235,6 +274,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                 ),
+                if (_cameras.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  Text(
+                    'Connected Cameras',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _cameras.length,
+                    itemBuilder: (context, index) {
+                      final camera = _cameras[index];
+                      final lastSeen = DateTime.fromMillisecondsSinceEpoch(
+                        camera['lastSeen'] ?? 0
+                      );
+                      return Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.camera_alt),
+                          title: Text(camera['name'] ?? 'Unknown Camera'),
+                          subtitle: Text('Last Seen: ${lastSeen.toString()}'),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.refresh),
+                            onPressed: () {
+                              _activeCameraUrl = camera['url'];
+                              _activeCameraName = camera['name'];
+                              _fetchLatestImage();
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
                 const SizedBox(height: 24),
                 if (_latestImage != null) ...[
                   Text(
@@ -256,9 +329,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           if (_lastDetectionTime != null)
                             Padding(
                               padding: const EdgeInsets.all(8.0),
-                              child: Text(
-                                'Captured: ${_lastDetectionTime.toString()}',
-                                style: Theme.of(context).textTheme.bodySmall,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Captured: ${_lastDetectionTime.toString()}',
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                  if (_activeCameraName != null)
+                                    Text(
+                                      'Camera: $_activeCameraName',
+                                      style: Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                ],
                               ),
                             ),
                         ],
