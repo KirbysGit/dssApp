@@ -270,20 +270,6 @@
     http.end();
   }
 
-  // Modified person status endpoint
-  void handlePersonStatus() {
-    String response = "{\"personDetected\": " + String(personDetected ? "true" : "false");
-    if (personDetected && lastImage != nullptr) {
-      response += ", \"imageAvailable\": true";
-    }
-    response += "}";
-    
-    server.send(200, "application/json", response);
-    
-    // Reset person detected flag after sending status
-    personDetected = false;
-  }
-
   // Modified person detection handler
   void handlePersonDetected() {
     Serial.println("\n========== PERSON DETECTION NOTIFICATION ==========");
@@ -310,10 +296,12 @@
     // Extract values from JSON
     const char* cameraUrl = doc["camera_url"];
     const char* nodeName = doc["node"];
+    const char* timestamp = doc["timestamp"];
 
     Serial.println("\nParsed JSON values:");
     Serial.println("Camera URL: [" + String(cameraUrl ? cameraUrl : "null") + "]");
     Serial.println("Node Name: [" + String(nodeName ? nodeName : "null") + "]");
+    Serial.println("Timestamp: [" + String(timestamp ? timestamp : "null") + "]");
 
     if (!cameraUrl || strlen(cameraUrl) == 0 || !nodeName || strlen(nodeName) == 0) {
         Serial.println("[ERROR] Missing or empty camera URL or node name");
@@ -341,9 +329,51 @@
         Serial.printf("Added new camera %s with URL %s, total cameras: %d\n", 
                     nodeName, cameraUrl, numCameras);
     }
+
+    // Set person detected flag
+    personDetected = true;
     
-    server.send(200, "text/plain", "Detection recorded");
+    // Create response JSON with camera information
+    String response = "{";
+    response += "\"status\":\"success\",";
+    response += "\"message\":\"Detection recorded\",";
+    response += "\"camera_url\":\"" + String(cameraUrl) + "\",";
+    response += "\"node\":\"" + String(nodeName) + "\",";
+    response += "\"timestamp\":\"" + String(timestamp ? timestamp : "") + "\"";
+    response += "}";
+    
+    server.send(200, "application/json", response);
+    
+    // Blink LED to indicate detection
+    digitalWrite(LED, HIGH);
+    delay(100);
+    digitalWrite(LED, LOW);
+    
     Serial.println("==============================================\n");
+  }
+
+  // Modified person status endpoint
+  void handlePersonStatus() {
+    // Create response JSON
+    String response = "{";
+    response += "\"personDetected\":" + String(personDetected ? "true" : "false") + ",";
+    response += "\"cameras\":[";
+    
+    for (int i = 0; i < numCameras; i++) {
+        if (i > 0) response += ",";
+        response += "{";
+        response += "\"name\":\"" + cameras[i].name + "\",";
+        response += "\"url\":\"" + cameras[i].url + "\",";
+        response += "\"lastSeen\":" + String(cameras[i].lastSeen);
+        response += "}";
+    }
+    
+    response += "]}";
+    
+    server.send(200, "application/json", response);
+    
+    // Reset person detected flag after sending status
+    personDetected = false;
   }
 
   // Handle direct camera capture

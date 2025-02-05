@@ -476,32 +476,32 @@ void handleRoot() {
 
 // Handle capture request
 void handleCapture() {
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    server.send(500, "text/plain", "Camera capture failed");
-    return;
-  }
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        server.send(500, "text/plain", "Camera capture failed");
+        return;
+    }
 
-  // Clear any existing headers
-  server.client().flush();
-  
-  // Set headers properly
-  server.sendHeader("Content-Type", "image/jpeg");
-  server.sendHeader("Content-Length", String(fb->len));
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Connection", "close");
-  
-  // Send the response code without content
-  server.setContentLength(fb->len);
-  server.send(200);
+    // Clear any existing headers
+    server.client().flush();
+    
+    // Set headers properly
+    server.sendHeader("Content-Type", "image/jpeg");
+    server.sendHeader("Content-Length", String(fb->len));
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Connection", "close");
+    
+    // Send the response code without content
+    server.setContentLength(fb->len);
+    server.send(200);
 
-  // Send the image data
-  WiFiClient client = server.client();
-  client.write(fb->buf, fb->len);
-  
-  // Clean up
-  esp_camera_fb_return(fb);
-  Serial.printf("Sent image: %d bytes\n", fb->len);
+    // Send the image data
+    WiFiClient client = server.client();
+    client.write(fb->buf, fb->len);
+    
+    // Clean up
+    esp_camera_fb_return(fb);
+    Serial.printf("Sent image: %d bytes\n", fb->len);
 }
 
 // Notify gadget of person detection
@@ -527,8 +527,9 @@ void notifyGadget() {
     
     http.addHeader("Content-Type", "application/json");
     
-    // Create JSON with camera information
-    String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+    // Create JSON with camera information and timestamp
+    String timestamp = "2025-01-20T12:34:56Z";  // In real implementation, get actual timestamp
+    String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\",\"timestamp\":\"" + timestamp + "\"}";
     Serial.println("Sending message: " + message);
     
     // Increase timeout to allow network recovery
@@ -550,11 +551,6 @@ void notifyGadget() {
     }
     
     http.end();
-    
-    // After notifying, capture and send the image only if notification was successful
-    if (httpCode == HTTP_CODE_OK) {
-        captureAndSendImage();
-    }
 }
 
 // Setup function that initializes esp32-cam.
