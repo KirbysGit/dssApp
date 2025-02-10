@@ -1,29 +1,34 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'theme/app_theme.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/welcome_screen.dart';
+import 'screens/dashboard_screen.dart';
 import 'screens/about_screen.dart';
-import 'providers/security_provider.dart';
+import 'screens/connecting_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => SecurityProvider(),
-      child: MaterialApp(
-        title: 'SecureScape',
-        theme: AppTheme.lightTheme,
-        home: const WelcomeScreen(),
-        routes: {
-          '/about': (context) => const AboutScreen(),
-        },
+    return MaterialApp(
+      title: 'SecureScape',
+      theme: ThemeData(
+        primarySwatch: Colors.green,
+        scaffoldBackgroundColor: AppTheme.mistGray,
+        useMaterial3: true,
       ),
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const WelcomeScreen(),
+        '/connecting': (context) => const ConnectingScreen(),
+        '/dashboard': (context) => const DashboardScreen(),
+        '/about': (context) => const AboutScreen(),
+      },
     );
   }
 }

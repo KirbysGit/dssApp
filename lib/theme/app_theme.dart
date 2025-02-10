@@ -96,4 +96,16 @@ class AppTheme {
     ),
     elevation: 2,
   );
+
+  static BoxDecoration get gradientBackground => BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        deepForestGreen.withOpacity(0.9),
+        pineGreen.withOpacity(0.7),
+        mistGray,
+      ],
+    ),
+  );
 } 
