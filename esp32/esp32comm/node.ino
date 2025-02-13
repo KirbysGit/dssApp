@@ -700,7 +700,7 @@ void loop()
     static unsigned long lastDetection = 0;
     unsigned long currentMillis = millis();
     
-    if (currentMillis - lastDetection > 10000) {  // Every 10 seconds
+    if (currentMillis - lastDetection > 45000) {  // Every 30 seconds
         if (WiFi.status() == WL_CONNECTED) {  // Only notify if WiFi is connected
             Serial.println("\n----------------------------");
             Serial.println("Test: Simulating motion detection");

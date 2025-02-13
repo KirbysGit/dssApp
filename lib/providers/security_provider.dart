@@ -6,6 +6,9 @@ import '../services/notification_service.dart';
 import '../services/security_service.dart';
 import '../models/security_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/detection_log.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class SecurityProvider with ChangeNotifier {
   final _service = MockSecurityService();
@@ -67,75 +70,166 @@ final securityServiceProvider = Provider((ref) => SecurityService(
 ));
 
 final securityStatusProvider = StateNotifierProvider<SecurityStatusNotifier, SecurityState>((ref) {
-  return SecurityStatusNotifier(ref.watch(securityServiceProvider));
+  return SecurityStatusNotifier(ref);
+});
+
+final detectionLogsProvider = StateNotifierProvider<DetectionLogsNotifier, List<DetectionLog>>((ref) {
+  return DetectionLogsNotifier();
 });
 
 class SecurityStatusNotifier extends StateNotifier<SecurityState> {
-  final SecurityService _securityService;
-  Timer? _statusCheckTimer;
-  bool _previousDetectionState = false;
+  Timer? _pollingTimer;
+  final Ref _ref;
 
-  SecurityStatusNotifier(this._securityService) : super(SecurityState.initial()) {
-    _startStatusChecking();
+  SecurityStatusNotifier(this._ref) : super(SecurityState(
+    isLoading: false,
+    personDetected: false,
+    lastDetectionTime: null,
+    cameras: [],
+    shouldShowNotification: false,
+  )) {
+    _startPolling();
   }
 
-  void _startStatusChecking() {
-    _statusCheckTimer = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => checkStatus(),
-    );
-  }
-
-  Future<void> checkStatus() async {
-    try {
-      final status = await _securityService.checkPersonStatus();
-      
-      // Debug logs for state changes
-      debugPrint('Previous detection state: $_previousDetectionState');
-      debugPrint('Current detection state: ${status.personDetected}');
-      debugPrint('Last detection time: ${status.lastDetectionTime}');
-      
-      // Check if this is a new detection
-      bool isNewDetection = !_previousDetectionState && status.personDetected;
-      debugPrint('Is new detection? $isNewDetection');
-
-      if (isNewDetection) {
-        debugPrint('New person detected! Triggering notification...');
-      }
-
-      _previousDetectionState = status.personDetected;
-
-      state = state.copyWith(
-        isLoading: false,
-        personDetected: status.personDetected,
-        cameras: status.cameras,
-        lastDetectionTime: status.lastDetectionTime,
-        shouldShowNotification: isNewDetection,
-      );
-
-      // Debug log for state update
-      debugPrint('Updated state - shouldShowNotification: ${state.shouldShowNotification}');
-    } catch (e) {
-      debugPrint('Error checking status: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: e.toString(),
-        shouldShowNotification: false,
-      );
-    }
-  }
-
-  void acknowledgeNotification() {
-    debugPrint('Acknowledging notification');
-    if (state.shouldShowNotification) {
-      state = state.copyWith(shouldShowNotification: false);
-      debugPrint('Notification acknowledged, shouldShowNotification set to false');
-    }
+  void _startPolling() {
+    // Initial check
+    checkStatus();
+    
+    // Poll every 2 seconds
+    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      checkStatus();
+    });
   }
 
   @override
   void dispose() {
-    _statusCheckTimer?.cancel();
+    _pollingTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> checkStatus() async {
+    try {
+      final gadgetIp = '192.168.8.151';
+      
+      final statusResponse = await http.get(
+        Uri.parse('http://$gadgetIp/person_status'),
+      ).timeout(const Duration(seconds: 5));
+
+      if (statusResponse.statusCode == 200) {
+        final data = jsonDecode(statusResponse.body);
+        debugPrint('Received status data: $data');
+
+        final List<Map<String, dynamic>> cameras = 
+          (data['cameras'] as List?)?.map((camera) => 
+            Map<String, dynamic>.from(camera as Map)
+          ).toList() ?? [];
+
+        debugPrint('Parsed cameras: $cameras');
+
+        final bool personDetected = data['personDetected'] ?? false;
+        final bool wasPersonDetectedBefore = state.personDetected;
+        
+        DateTime? lastDetectionTime;
+        if (data['lastDetectionTime'] != null) {
+          try {
+            lastDetectionTime = DateTime.parse(data['lastDetectionTime'].toString());
+          } catch (e) {
+            debugPrint('Error parsing timestamp: $e');
+            lastDetectionTime = DateTime.now();
+          }
+        }
+
+        final bool shouldNotify = (personDetected && !wasPersonDetectedBefore) ||
+          (personDetected && lastDetectionTime != null && 
+           lastDetectionTime != state.lastDetectionTime);
+
+        debugPrint('Person detected: $personDetected, Was detected before: $wasPersonDetectedBefore');
+        debugPrint('Last detection time: $lastDetectionTime, Current time: ${state.lastDetectionTime}');
+        debugPrint('Should show notification: $shouldNotify');
+
+        // If this is a new detection, create a log entry
+        if (shouldNotify && cameras.isNotEmpty) {
+          final detectedCamera = cameras.first;
+          final newLog = DetectionLog(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            timestamp: lastDetectionTime ?? DateTime.now(),
+            cameraName: detectedCamera['name'] as String? ?? 'Unknown Camera',
+            cameraUrl: detectedCamera['url'] as String? ?? '',
+            imageUrl: null,
+            isAcknowledged: false,
+            wasAlarmTriggered: true,
+          );
+          
+          debugPrint('Creating new detection log: ${newLog.toString()}');
+          _ref.read(detectionLogsProvider.notifier).addDetectionLog(newLog);
+        }
+
+        if (!state.isLoading) {
+          state = state.copyWith(
+            isLoading: false,
+            personDetected: personDetected,
+            lastDetectionTime: lastDetectionTime,
+            cameras: cameras,
+            shouldShowNotification: shouldNotify,
+            error: null,
+          );
+        }
+      } else {
+        throw Exception('Failed to fetch status: ${statusResponse.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error checking status: $e');
+      if (!state.isLoading) {
+        state = state.copyWith(
+          isLoading: false,
+          error: e.toString(),
+        );
+      }
+    }
+  }
+
+  void acknowledgeNotification() {
+    state = state.copyWith(shouldShowNotification: false);
+  }
+}
+
+class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
+  DetectionLogsNotifier() : super([]);
+
+  Future<void> loadInitialLogs() async {
+    // In the future, we could load from local storage here
+    if (state.isEmpty) {
+      state = [];
+    }
+  }
+
+  void addDetectionLog(DetectionLog log) {
+    state = [log, ...state];
+    _saveLogsToStorage(); // Save to persistent storage
+  }
+
+  Future<void> _saveLogsToStorage() async {
+    // TODO: Implement persistent storage
+    // For now, just log the save operation
+    debugPrint('Saving ${state.length} logs to storage');
+    for (final log in state) {
+      debugPrint('Log: ${log.toString()}');
+    }
+  }
+
+  void acknowledgeLog(String logId) {
+    state = [
+      for (final log in state)
+        if (log.id == logId)
+          log.copyWith(isAcknowledged: true)
+        else
+          log,
+    ];
+    _saveLogsToStorage();
+  }
+
+  void clearLogs() {
+    state = [];
+    _saveLogsToStorage();
   }
 }

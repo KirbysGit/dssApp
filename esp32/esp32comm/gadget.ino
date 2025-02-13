@@ -96,10 +96,6 @@
   CameraNode cameras[MAX_CAMERAS];
   int numCameras = 0;
 
-  // Add at the top with other globals
-  unsigned long lastDetectionTime = 0;
-  const unsigned long DETECTION_COOLDOWN = 30000;  // 30 second cooldown between detections
-
   // ----
   // CODE
   // ----
@@ -279,17 +275,6 @@
     Serial.println("\n========== PERSON DETECTION NOTIFICATION ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Sender IP: " + server.client().remoteIP().toString());
-    
-    // Check if enough time has passed since last detection
-    unsigned long currentTime = millis();
-    if (currentTime - lastDetectionTime < DETECTION_COOLDOWN) {
-      Serial.println("Detection ignored - within cooldown period");
-      server.send(200, "application/json", "{\"status\":\"ignored\",\"message\":\"Too soon after last detection\"}");
-      return;
-    }
-    
-    // Update last detection time
-    lastDetectionTime = currentTime;
     
     // Print raw POST data
     String postBody = server.arg("plain");
@@ -604,9 +589,6 @@
             server.send(200, "application/json", "{\"status\":\"connected\"}");
         });
         
-        // Initialize last detection time
-        lastDetectionTime = 0;
-        
         // Start the web server
         server.begin();
         Serial.println("HTTP server started successfully");
@@ -665,25 +647,6 @@
         digitalWrite(LED, !digitalRead(LED));
         lastBlink = millis();
     }
-
-    #ifndef TRIGGER_MODE
-    static unsigned long lastDetection = 0;
-    unsigned long currentMillis = millis();
-    
-    // Increase simulation interval to 30 seconds (from 10 seconds)
-    if (currentMillis - lastDetection > 30000) {  // Every 30 seconds
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\n----------------------------");
-        Serial.println("Test: Simulating motion detection");
-        Serial.println("----------------------------");
-        notifyGadget();
-      }
-      lastDetection = currentMillis;
-    }
-    #endif
-    
-    // Increase the delay to reduce CPU load
-    delay(200);  // Increased from 100ms to 200ms
   }
 
   // -----------------------------------------------------------------

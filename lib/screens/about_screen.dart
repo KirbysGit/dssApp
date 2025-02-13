@@ -37,22 +37,46 @@ Our mission is to enhance personal security in unpredictable environments throug
     },
   ];
 
-  static const List<Map<String, String>> _teamMembers = [
+  static const List<Map<String, dynamic>> _teamMembers = [
     {
       'name': 'Jaxon Topel',
-      'role': 'Image Processing & Software Development',
+      'role': 'Embedded Code Development',
+      'details': [
+        'Node → Gadget Communication',
+        'Image Processing Algorithm Development & Testing',
+        'System Architecture Design',
+      ],
+      'image': 'assets/images/jaxon.png',
     },
     {
-      'name': 'Colin Kirby',
-      'role': 'Embedded Systems & Mobile App Development',
+      'name': 'Phillip Murano',
+      'role': 'CAD & Power Management',
+      'details': [
+        'CAD Development',
+        'Node: Alarm system / LEDs',
+        'Power Management',
+      ],
+      'image': 'assets/images/phillip.png',
     },
     {
       'name': 'Dylan Myers',
       'role': 'PCB & Hardware Integration',
+      'details': [
+        'PCB Design',
+        'Gadget Peripherals',
+        'Node: Camera / IR Sensors',
+      ],
+      'image': 'assets/images/dylan.png',
     },
     {
-      'name': 'Phillip Murano',
-      'role': 'PCB & Embedded Code Development',
+      'name': 'Colin Kirby',
+      'role': 'Mobile & Web Development',
+      'details': [
+        'Mobile App Development',
+        'Gadget → App Communication',
+        'Website Development',
+      ],
+      'image': 'assets/images/colin.png',
     },
   ];
 
@@ -61,6 +85,9 @@ Our mission is to enhance personal security in unpredictable environments throug
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isLargeScreen = size.width > 600;
+
     return Scaffold(
       backgroundColor: AppTheme.mistGray,
       appBar: AppBar(
@@ -73,7 +100,7 @@ Our mission is to enhance personal security in unpredictable environments throug
         ),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(24.0),
+        padding: EdgeInsets.all(isLargeScreen ? 32.0 : 24.0),
         children: [
           // Header: Logo and Version
           Card(
@@ -119,8 +146,23 @@ Our mission is to enhance personal security in unpredictable environments throug
 
           // Meet the Team Section
           _buildSectionHeader(context, 'Meet the Team'),
-          const SizedBox(height: 8),
-          ..._teamMembers.map((member) => _buildTeamMember(context, member)).toList(),
+          const SizedBox(height: 16),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: isLargeScreen ? 2 : 1,
+              childAspectRatio: isLargeScreen ? 1.6 : 1.4,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+            ),
+            itemCount: _teamMembers.length,
+            itemBuilder: (context, index) => _buildTeamMember(
+              context,
+              _teamMembers[index],
+              isLargeScreen,
+            ),
+          ),
           const SizedBox(height: 24),
 
           // About SecureScape Purpose
@@ -236,35 +278,107 @@ Our mission is to enhance personal security in unpredictable environments throug
     );
   }
 
-  Widget _buildTeamMember(BuildContext context, Map<String, String> member) {
+  Widget _buildTeamMember(BuildContext context, Map<String, dynamic> member, bool isLargeScreen) {
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
+      elevation: 4,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppTheme.pineGreen.withOpacity(0.1),
-          child: Text(
-            member['name']?.substring(0, 1) ?? '',
-            style: TextStyle(
-              color: AppTheme.deepForestGreen,
-              fontWeight: FontWeight.bold,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with image and name
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: isLargeScreen ? 40 : 36,
+                  backgroundColor: AppTheme.pineGreen.withOpacity(0.1),
+                  backgroundImage: AssetImage(member['image']),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        member['name'],
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.deepForestGreen,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        member['role'],
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: AppTheme.pineGreen,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ),
-        ),
-        title: Text(
-          member['name'] ?? '',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: AppTheme.deepForestGreen,
+            const SizedBox(height: 16),
+            
+            // Responsibilities
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.pineGreen.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Responsibilities:',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.deepForestGreen,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: List<Widget>.from(
+                          (member['details'] as List<dynamic>).map(
+                            (detail) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.check_circle,
+                                    size: 16,
+                                    color: AppTheme.pineGreen,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      detail,
+                                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        color: AppTheme.deepForestGreen.withOpacity(0.8),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-        ),
-        subtitle: Text(
-          member['role'] ?? '',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppTheme.pineGreen,
-              ),
+            ),
+          ],
         ),
       ),
     );

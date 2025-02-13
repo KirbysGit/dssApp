@@ -1,10 +1,10 @@
 name: deployable_security_system
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.1.0
 
 environment:
-  sdk: '>=3.5.3 <4.0.0'
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -20,18 +20,26 @@ dependencies:
   google_fonts: ^6.1.0
   flutter_riverpod: ^2.4.9
   freezed_annotation: ^2.4.1
-  json_annotation: ^4.9.0
+  json_annotation: ^4.8.1
+  lottie: ^2.7.0
+  flutter_animate: ^4.3.0
+  loading_animation_widget: ^1.2.0+4
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^2.0.0
   build_runner: ^2.4.7
-  freezed: ^2.4.6
+  freezed: ^2.4.5
   json_serializable: ^6.7.1
 
 flutter:
   uses-material-design: true
   
   assets:
+    - assets/images/
     - assets/images/dssLogo.png
+    - assets/images/colin.png
+    - assets/images/dylan.png
+    - assets/images/phillip.png
+    - assets/images/jaxon.png

@@ -8,6 +8,8 @@ import '../theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/security_provider.dart';
 import '../models/security_state.dart';
+import './cameras_screen.dart';
+import './logs_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -43,6 +45,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     ));
     
     _animationController.forward();
+
+    // Start periodic image updates
+    _startImageUpdates();
   }
 
   @override
@@ -201,20 +206,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       debugPrint('Fetching image from camera: $cameraUrl');
       final response = await http.get(Uri.parse(cameraUrl))
           .timeout(const Duration(seconds: 5));
-      
+
       if (response.statusCode == 200 && mounted) {
-        debugPrint('Image fetched successfully');
-        setState(() {
-          _latestImage = Image.memory(
-            response.bodyBytes,
-            fit: BoxFit.contain,
-          );
-        });
+        if (response.headers['content-type']?.contains('image/') == true) {
+          debugPrint('Image fetched successfully');
+          setState(() {
+            _latestImage = Image.memory(
+              response.bodyBytes,
+              fit: BoxFit.contain,
+              // Use gapless playback to prevent flickering during updates
+              gaplessPlayback: true,
+            );
+          });
+        } else {
+          debugPrint('Invalid image format received');
+          throw Exception('Invalid image format received');
+        }
       } else {
         debugPrint('Failed to fetch image. Status code: ${response.statusCode}');
+        throw Exception('Failed to fetch image: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error fetching image: $e');
+      // Don't show error UI for background fetches
+      if (_alertVisible && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to fetch image: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -258,6 +280,22 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
   }
 
+  void _startImageUpdates() {
+    // Initial fetch
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final status = ref.read(securityStatusProvider);
+      _fetchLatestImage(status);
+    });
+
+    // Set up periodic updates every 10 seconds
+    Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (mounted && !_alertVisible && !_isFetchingImage) {
+        final status = ref.read(securityStatusProvider);
+        _fetchLatestImage(status);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final securityState = ref.watch(securityStatusProvider);
@@ -268,12 +306,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     ref.listenManual(
       securityStatusProvider,
       (previous, next) {
-        debugPrint('Security state changed:');
-        debugPrint('Previous detection time: ${previous?.lastDetectionTime}');
-        debugPrint('Next detection time: ${next.lastDetectionTime}');
-        debugPrint('Should show notification: ${next.shouldShowNotification}');
-        debugPrint('Alert visible: $_alertVisible');
-
         if (next.shouldShowNotification && !_alertVisible) {
           debugPrint('Attempting to fetch image and show alert...');
           _fetchLatestImage(next).then((_) {
@@ -305,65 +337,110 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
         child: SafeArea(
           child: Column(
             children: [
-              ModernAppBar(
-                isLoading: securityState.isLoading,
-                onRefresh: () => ref.read(securityStatusProvider.notifier).checkStatus(),
+              // Header Section
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.1),
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                ),
+                child: Row(
+                  children: [
+                    Hero(
+                      tag: 'logo',
+                      child: Image.asset(
+                        'assets/images/dssLogo.png',
+                        height: 40,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'SecureScape Dashboard',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isLargeScreen ? 28 : 24,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'SF Pro Display',
+                      ),
+                    ),
+                    const Spacer(),
+                    if (securityState.isLoading)
+                      const SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          strokeWidth: 2,
+                        ),
+                      )
+                    else
+                      IconButton(
+                        onPressed: () => ref.read(securityStatusProvider.notifier).checkStatus(),
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                      ),
+                  ],
+                ),
               ),
+              
+              // Main Content
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: () async => ref.read(securityStatusProvider.notifier).checkStatus(),
-                  child: CustomScrollView(
+                  child: SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      SliverFadeTransition(
-                        opacity: _fadeAnimation,
-                        sliver: SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isLargeScreen ? 24.0 : 16.0,
-                              vertical: 16.0,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                StatusCard(
-                                  status: securityState,
-                                  dateFormatter: _dateFormatter,
-                                  activeCameraName: _activeCameraName,
-                                  isLargeScreen: isLargeScreen,
-                                ),
-                                const SizedBox(height: 24),
-                                
-                                if (securityState.cameras.isNotEmpty) ...[
-                                  const SectionHeader(title: 'Connected Cameras'),
-                                  const SizedBox(height: 12),
-                                  CamerasList(
-                                    cameras: securityState.cameras,
-                                    dateFormatter: _dateFormatter,
-                                    onRefresh: _handleCameraRefresh,
-                                    isLargeScreen: isLargeScreen,
-                                  ),
-                                  const SizedBox(height: 24),
-                                ],
-                                
-                                if (_latestImage != null) ...[
-                                  const SectionHeader(title: 'Latest Detection'),
-                                  const SizedBox(height: 12),
-                                  DetectionCard(
-                                    image: _latestImage!,
-                                    status: securityState,
-                                    dateFormatter: _dateFormatter,
-                                    activeCameraName: _activeCameraName,
-                                    onFullScreen: _showFullScreenImage,
-                                    isLargeScreen: isLargeScreen,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isLargeScreen ? 24.0 : 16.0,
+                        vertical: 16.0,
                       ),
-                    ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Status Section
+                          StatusCard(
+                            status: securityState,
+                            dateFormatter: _dateFormatter,
+                            activeCameraName: _activeCameraName,
+                            isLargeScreen: isLargeScreen,
+                            onAlarmOff: () {
+                              // TODO: Implement alarm off functionality
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                          
+                          // Latest Capture Section
+                          if (_latestImage != null) ...[
+                            const SectionHeader(title: 'Latest Capture'),
+                            const SizedBox(height: 12),
+                            Center(
+                              child: DetectionCard(
+                                image: _latestImage!,
+                                status: securityState,
+                                dateFormatter: _dateFormatter,
+                                activeCameraName: _activeCameraName,
+                                onFullScreen: _showFullScreenImage,
+                                isLargeScreen: isLargeScreen,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                          
+                          // Connected Cameras Section
+                          if (securityState.cameras.isNotEmpty) ...[
+                            const SectionHeader(title: 'Connected Cameras'),
+                            const SizedBox(height: 12),
+                            CamerasList(
+                              cameras: securityState.cameras,
+                              dateFormatter: _dateFormatter,
+                              onRefresh: _handleCameraRefresh,
+                              isLargeScreen: isLargeScreen,
+                            ),
+                          ],
+                          // Add extra padding at bottom for better scrolling
+                          const SizedBox(height: 80),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -371,81 +448,62 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
           ),
         ),
       ),
-    );
-  }
-}
-
-class ModernAppBar extends StatelessWidget {
-  final bool isLoading;
-  final VoidCallback onRefresh;
-
-  const ModernAppBar({
-    Key? key,
-    required this.isLoading,
-    required this.onRefresh,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Hero(
-            tag: 'logo',
-            child: Image.asset(
-              'assets/images/dssLogo.png',
-              height: 40,
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.deepForestGreen,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, -2),
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            'Security Dashboard',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: MediaQuery.of(context).size.width > 600 ? 24 : 20,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'SF Pro Display',
-              letterSpacing: 0.5,
+          ],
+        ),
+        child: NavigationBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          height: 65,
+          selectedIndex: 1,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          destinations: [
+            NavigationDestination(
+              icon: Icon(Icons.history_outlined, color: Colors.white.withOpacity(0.7)),
+              selectedIcon: const Icon(Icons.history, color: Colors.white),
+              label: 'Logs',
             ),
-          ),
-          const Spacer(),
-          if (isLoading)
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  strokeWidth: 2,
-                ),
-              ),
-            )
-          else
-            IconButton(
-              onPressed: onRefresh,
-              icon: Icon(
-                Icons.refresh,
-                color: Colors.white.withOpacity(0.9),
-              ),
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined, color: Colors.white.withOpacity(0.7)),
+              selectedIcon: const Icon(Icons.home, color: Colors.white),
+              label: 'Home',
             ),
-        ],
+            NavigationDestination(
+              icon: Icon(Icons.camera_alt_outlined, color: Colors.white.withOpacity(0.7)),
+              selectedIcon: const Icon(Icons.camera_alt, color: Colors.white),
+              label: 'Cameras',
+            ),
+          ],
+          onDestinationSelected: (index) {
+            switch (index) {
+              case 0:
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (context) => const LogsScreen(),
+                  ),
+                );
+                break;
+              case 1:
+                // Already on home, do nothing
+                break;
+              case 2:
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (context) => const CamerasScreen(),
+                  ),
+                );
+                break;
+            }
+          },
+        ),
       ),
     );
   }
@@ -456,6 +514,7 @@ class StatusCard extends StatelessWidget {
   final DateFormat dateFormatter;
   final String? activeCameraName;
   final bool isLargeScreen;
+  final VoidCallback onAlarmOff;
 
   const StatusCard({
     Key? key,
@@ -463,6 +522,7 @@ class StatusCard extends StatelessWidget {
     required this.dateFormatter,
     required this.activeCameraName,
     required this.isLargeScreen,
+    required this.onAlarmOff,
   }) : super(key: key);
 
   @override
@@ -485,25 +545,44 @@ class StatusCard extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildStatusIcon(),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildStatusText(),
-                      if (status.lastDetectionTime != null) ...[
-                        const SizedBox(height: 4),
-                        _buildTimestamp(),
-                      ],
-                      if (activeCameraName != null) ...[
-                        const SizedBox(height: 4),
-                        _buildCameraInfo(),
-                      ],
-                    ],
-                  ),
+                Row(
+                  children: [
+                    _buildStatusIcon(),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildStatusText(),
+                          if (status.lastDetectionTime != null) ...[
+                            const SizedBox(height: 4),
+                            _buildTimestamp(),
+                          ],
+                          if (activeCameraName != null) ...[
+                            const SizedBox(height: 4),
+                            _buildCameraInfo(),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (status.personDetected)
+                      ElevatedButton.icon(
+                        onPressed: onAlarmOff,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.withOpacity(0.8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.notifications_off),
+                        label: const Text('Stop Alarm'),
+                      ),
+                  ],
                 ),
               ],
             ),
