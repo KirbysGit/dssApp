@@ -55,11 +55,15 @@ WebServer server(80);
 // ---------
 
 // GPIO Pins --> Active Low.
-// const byte TriggerAlarm = GPIO_NUM_24;
-// const byte TurnOnLights = GPIO_NUM_25;
-// const byte TurnOffAlarm = GPIO_NUM_26;
-// const byte TurnOffGadget = GPIO_NUM_27;
+// const byte TRIGGER_ALARM_PIN = GPIO_NUM_24;
+// const byte TURN_ON_LIGHTS_PIN = GPIO_NUM_25;
+// const byte TURN_OFF_ALARM_PIN = GPIO_NUM_26;
+// const byte TURN_OFF_GADGET_PIN = GPIO_NUM_27;
 const int LED = 21;
+
+// Switch debounce variables.
+unsigned long lastSwitchPressTime = 0;
+const unsigned long DEBOUNCE_DELAY = 200; // 200ms debounce time
 
 // PSRAM buffer.
 // uint8_t* psramBuffer = nullptr;
@@ -239,13 +243,135 @@ void handlePing() {
 }
 
 // -----------------------------------------------------------------------------------------
+// Switch Monitoring
+// -----------------------------------------------------------------------------------------
+
+void checkSwitches() {
+    // Get current time.
+    unsigned long currentMillis = millis();
+    /*
+    // Debounce switch presses.
+    if (currentMillis - lastSwitchPressTime > DEBOUNCE_DELAY) {
+
+        // Check trigger alarm switch.
+        if (digitalRead(TRIGGER_ALARM_PIN) == LOW) {
+
+            // Print notification.
+            Serial.println("[INPUT] Trigger Alarm Switch Activated");
+            
+            // Notify node.
+            notifyNode("/trigger_alarm");
+
+            // Update last switch press time.
+            lastSwitchPressTime = currentMillis;
+        }
+
+        // Check turn on lights switch.
+        if (digitalRead(TURN_ON_LIGHTS_PIN) == LOW) {
+
+            // Print notification.
+            Serial.println("[INPUT] Turn On Lights Switch Activated");
+
+            // Notify node.
+            notifyNode("/turn_on_lights");
+
+            // Update last switch press time.
+            lastSwitchPressTime = currentMillis;
+        }
+
+        // Check turn off alarm switch.
+        if (digitalRead(TURN_OFF_ALARM_PIN) == LOW) {
+
+            // Print notification.
+            Serial.println("[INPUT] Turn Off Alarm Switch Activated");
+
+            // Notify node.
+            notifyNode("/turn_off_alarm");
+
+            // Update last switch press time.
+            lastSwitchPressTime = currentMillis;
+          }
+
+        // Check turn off gadget switch.
+        if (digitalRead(TURN_OFF_GADGET_PIN) == LOW) {
+
+            // Print notification.
+            Serial.println("[INPUT] Turn Off Gadget Switch Activated");
+
+            // Restart gadget.
+            Serial.println("Shutting down ESP32...");
+            delay(1000);
+            ESP.restart();
+        }
+    }
+  */
+}
+
+// -----------------------------------------------------------------------------------------
+// Notify Node.
+// -----------------------------------------------------------------------------------------
+
+void notifyNode(String endpoint) {
+    // Check if WiFi is connected.
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[ERROR] Cannot notify nodes: WiFi not connected");
+        return;
+    }
+
+    // Iterate through all connected cameras
+    for (int i = 0; i < numCameras; i++) {
+        // Create HTTP client
+        HTTPClient http;
+        
+        // Extract base URL from camera URL and append the endpoint
+        String nodeUrl = cameras[i].url;
+        // Remove "/capture" from the end if it exists
+        nodeUrl = nodeUrl.substring(0, nodeUrl.lastIndexOf('/'));
+        String url = nodeUrl + endpoint;
+
+        // Print notification
+        Serial.println("Sending request to node " + cameras[i].name + ": " + url);
+        
+        // Check if HTTP connection is successful
+        if (!http.begin(url)) {
+            Serial.println("[ERROR] Failed to begin HTTP connection to " + cameras[i].name);
+            continue;
+        }
+        
+        // Set timeout
+        http.setTimeout(5000);
+
+        // Send GET request
+        int httpCode = http.GET();
+        
+        // Check if request was successful
+        if (httpCode == HTTP_CODE_OK) {
+            String response = http.getString();
+            Serial.println("Node " + cameras[i].name + " response: " + response);
+            Serial.println("Command acknowledged successfully");
+        } else {
+            Serial.printf("[ERROR] Node %s did not acknowledge command. Error code: %d\n", 
+                        cameras[i].name.c_str(), httpCode);
+        }
+
+        http.end();
+    }
+}
+
+// -----------------------------------------------------------------------------------------
 // Setup function that initializes ESP32-CAM.
 // -----------------------------------------------------------------------------------------
 
 void setup()
 {
-  // Initialize LED pin.
+  // Initialize pins.
   pinMode(LED, OUTPUT);
+  /*
+  pinMode(TRIGGER_ALARM_PIN, INPUT_PULLUP);
+  pinMode(TURN_ON_LIGHTS_PIN, INPUT_PULLUP);
+  pinMode(TURN_OFF_ALARM_PIN, INPUT_PULLUP);
+  pinMode(TURN_OFF_GADGET_PIN, INPUT_PULLUP);
+  */
   digitalWrite(LED, LOW);
 
   // Start serial communication.
@@ -355,10 +481,13 @@ void loop()
       }
   }
 
-  // Handle incoming HTTP requests
+  // Handle incoming HTTP requests.
   server.handleClient();
     
-  // Blink LED occasionally to show the device is running
+  // Check Hardware Switches.
+  checkSwitches();
+    
+  // Blink LED occasionally to show the device is running.
   static unsigned long lastBlink = 0;
   if (millis() - lastBlink > 2000 && WiFi.status() == WL_CONNECTED) {
       digitalWrite(LED, !digitalRead(LED));

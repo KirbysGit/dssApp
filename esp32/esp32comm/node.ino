@@ -86,6 +86,19 @@ const byte whitePin = GPIO_NUM_3;
 // Tampering pin.
 const byte Tamper_Pin = GPIO_NUM_1;
 
+// Hardware state variables.
+bool alarmActive = false;
+bool lightsActive = false;
+bool motionDetected = false;
+unsigned long lastMotionCheck = 0;
+const unsigned long MOTION_CHECK_INTERVAL = 500; // Check motion every 500ms
+
+// Heartbeat variables.
+unsigned long lastHeartbeat = 0;
+const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 seconds
+const int MAX_MISSED_HEARTBEATS = 5;
+int missedHeartbeats = 0;
+
 // ----
 // CODE
 // ----
@@ -346,7 +359,7 @@ void notifyGadget() {
         Serial.println("[ERROR] Failed to begin HTTP connection");
         return;
     }
-
+    
     // Add headers.
     http.addHeader("Content-Type", "application/json");
     
@@ -381,7 +394,118 @@ void notifyGadget() {
 }
 
 // -----------------------------------------------------------------------------------------
-// Setup function that initializes ESP32-CAM.
+// Trigger Alarm.
+// -----------------------------------------------------------------------------------------
+
+void handleTriggerAlarm() {
+    // Print notification.
+    Serial.println("\n========== TRIGGER ALARM REQUEST ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    
+    // Activate alarm.
+    alarmActive = true;
+    digitalWrite(Alarm_Pin, HIGH);
+    digitalWrite(RedLED_Pin, HIGH);
+    
+    // Send response.
+    server.send(200, "application/json", "{\"status\":\"alarm_triggered\"}");
+    Serial.println("Alarm activated successfully");
+    Serial.println("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Turn Off Alarm.
+// -----------------------------------------------------------------------------------------
+
+void handleTurnOffAlarm() {
+    // Print notification.
+    Serial.println("\n========== TURN OFF ALARM REQUEST ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    
+    // Deactivate alarm.
+    alarmActive = false;
+    digitalWrite(Alarm_Pin, LOW);
+    digitalWrite(RedLED_Pin, LOW);
+    
+    // Send response.
+    server.send(200, "application/json", "{\"status\":\"alarm_deactivated\"}");
+    Serial.println("Alarm deactivated successfully");
+    Serial.println("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Turn On Lights.
+// -----------------------------------------------------------------------------------------
+
+void handleTurnOnLights() {
+    // Print notification.
+    Serial.println("\n========== TURN ON LIGHTS REQUEST ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    
+    // Activate lights.
+    lightsActive = true;
+    digitalWrite(LEDStrip_Pin, HIGH);
+    digitalWrite(whitePin, HIGH);
+    
+    // Send response.
+    server.send(200, "application/json", "{\"status\":\"lights_activated\"}");
+    Serial.println("Lights activated successfully");
+    Serial.println("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Turn Off Lights.
+// -----------------------------------------------------------------------------------------
+
+void handleTurnOffLights() {
+    // Print notification.
+    Serial.println("\n========== TURN OFF LIGHTS REQUEST ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    
+    // Deactivate lights.
+    lightsActive = false;
+    digitalWrite(LEDStrip_Pin, LOW);
+    digitalWrite(whitePin, LOW);
+    
+    // Send response.
+    server.send(200, "application/json", "{\"status\":\"lights_deactivated\"}");
+    Serial.println("Lights deactivated successfully");
+    Serial.println("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Heartbeat.
+// -----------------------------------------------------------------------------------------
+
+void handleHeartbeat() {
+    Serial.println("\n========== HEARTBEAT REQUEST ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    
+    // Reset missed heart beats counter
+    missedHeartbeats = 0;
+    
+    // Create status JSON
+    String response = "{";
+    response += "\"status\":\"alive\",";
+    response += "\"uptime\":" + String(millis()) + ",";
+    response += "\"alarm_active\":" + String(alarmActive ? "true" : "false") + ",";
+    response += "\"lights_active\":" + String(lightsActive ? "true" : "false") + ",";
+    response += "\"motion_detected\":" + String(motionDetected ? "true" : "false");
+    response += "}";
+    
+    // Send response
+    server.send(200, "application/json", response);
+    Serial.println("Heartbeat response sent");
+    Serial.println("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Set Up Function.
 // -----------------------------------------------------------------------------------------
 
 // Main Setup Function.
@@ -413,7 +537,7 @@ void setup()
         ESP.restart();
     }
 
-    // Wi-Fi Configuration
+    // Wi-Fi Configuration.
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
@@ -439,6 +563,11 @@ void setup()
     // Set up HTTP server endpoints.
     server.on("/", HTTP_GET, handleRoot);
     server.on("/capture", HTTP_GET, handleCapture);
+    server.on("/trigger_alarm", HTTP_GET, handleTriggerAlarm);
+    server.on("/turn_off_alarm", HTTP_GET, handleTurnOffAlarm);
+    server.on("/turn_on_lights", HTTP_GET, handleTurnOnLights);
+    server.on("/turn_off_lights", HTTP_GET, handleTurnOffLights);
+    server.on("/heartbeat", HTTP_GET, handleHeartbeat);
     
     // Start HTTP server.
     server.begin();
@@ -463,7 +592,7 @@ void setup()
             Serial.println("Failed to begin HTTP connection to gadget");
             return;
         }
-
+        
         // Add headers.
         http.addHeader("Content-Type", "application/json");
         http.setTimeout(10000);  // 10 second timeout
@@ -502,11 +631,44 @@ void setup()
         http.end();
     }
 
-    // Initialize PIR sensor pin if using TRIGGER_MODE
+    // Initialize PIR sensor pin if using TRIGGER_MODE.
     #ifdef TRIGGER_MODE
     pinMode(PassiveIR_Pin, INPUT);
     Serial.println("PIR sensor initialized");
     #endif
+
+    // Initialize Hardware.
+    initializeHardware();
+}
+
+// -----------------------------------------------------------------------------------------
+// Initialize Hardware.
+// -----------------------------------------------------------------------------------------
+
+void initializeHardware() {
+    Serial.println("\n========== INITIALIZING HARDWARE ==========");
+    
+    // Initialize input pins.
+    pinMode(PassiveIR_Pin, INPUT);
+    pinMode(ActiveIR_Pin, INPUT);
+    pinMode(Tamper_Pin, INPUT_PULLUP);
+    
+    // Initialize output pins.
+    pinMode(LEDStrip_Pin, OUTPUT);
+    pinMode(Alarm_Pin, OUTPUT);
+    pinMode(RedLED_Pin, OUTPUT);
+    pinMode(whitePin, OUTPUT);
+    
+    // Set initial states.
+    digitalWrite(LEDStrip_Pin, LOW);
+    digitalWrite(Alarm_Pin, LOW);
+    digitalWrite(RedLED_Pin, LOW);
+    digitalWrite(whitePin, LOW);
+    
+    // Print notification.
+    Serial.println("PIR sensors initialized");
+    Serial.println("Output devices initialized");
+    Serial.println("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -514,31 +676,121 @@ void setup()
 // -----------------------------------------------------------------------------------------
 
 void checkWiFiConnection() {
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
         
         // Disconnect and reconnect
-        WiFi.disconnect();
-        WiFi.reconnect();
+            WiFi.disconnect();
+            WiFi.reconnect();
         
         // Attempt to reconnect
-        int attempts = 0;
-        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-            delay(1000);
-            Serial.print(".");
-            attempts++;
-        }
-        
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("\nWi-Fi reconnected successfully!");
+            int attempts = 0;
+            while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+                delay(1000);
+                Serial.print(".");
+                attempts++;
+            }
+
+            if (WiFi.status() == WL_CONNECTED) {
+                Serial.println("\nWi-Fi reconnected successfully!");
             Serial.print("ESP32-CAM IP Address: ");
             Serial.println(WiFi.localIP());
-        } else {
-            Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
-            delay(5000);
-            ESP.restart();
+            } else {
+                Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
+                delay(5000);
+                ESP.restart();
+            }
         }
     }
+
+// -----------------------------------------------------------------------------------------
+// Test Person Detection (For Mobile App Testing)
+// -----------------------------------------------------------------------------------------
+
+void simulatePersonDetection() {
+    static unsigned long lastTestDetection = 0;
+    const unsigned long TEST_INTERVAL = 30000; // 30 second interval
+    
+    if (millis() - lastTestDetection >= TEST_INTERVAL) {
+        lastTestDetection = millis();
+        Serial.println("\n[TEST] Simulating person detection...");
+        
+        // Simulate motion detection
+        motionDetected = true;
+        
+        // Capture test image
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            Serial.println("[TEST] Camera capture failed");
+        } else {
+            Serial.println("[TEST] Image captured successfully");
+            Serial.printf("[TEST] Image size: %d bytes\n", fb->len);
+            
+            // Notify gadget
+            notifyGadget();
+            
+            // Return the frame buffer
+            esp_camera_fb_return(fb);
+            
+            Serial.println("[TEST] Test detection notification sent");
+        }
+        
+        // Reset motion detection after a short delay
+        delay(1000);  // Keep motion detected true briefly for status checks
+        motionDetected = false;
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// Check Motion Sensor.
+// -----------------------------------------------------------------------------------------
+
+void checkMotionSensor() {
+    // Check motion sensor at regular intervals.
+
+    /*
+    if (millis() - lastMotionCheck >= MOTION_CHECK_INTERVAL) {
+        lastMotionCheck = millis();
+        
+        // Read PIR sensor.
+        int pirValue = digitalRead(PassiveIR_Pin);
+        if (pirValue == HIGH) {
+            Serial.println("\n[MOTION] PIR sensor detected motion");
+            motionDetected = true;
+            
+            // Capture image.
+            camera_fb_t *fb = esp_camera_fb_get();
+            if (!fb) {
+                Serial.println("[ERROR] Camera capture failed");
+            } else {
+                Serial.println("Image captured successfully");
+                Serial.printf("Image size: %d bytes\n", fb->len);
+                
+                // Process image for person detection.
+                if (processImage(fb)) {
+                    Serial.println("[DETECTION] Person detected in image");
+                    
+                    // Notify gadget.
+                    notifyGadget();
+                    
+                    // Turn on lights if it's dark (you can add light sensor logic here).
+                    if (!lightsActive) {
+                        digitalWrite(LEDStrip_Pin, HIGH);
+                        digitalWrite(whitePin, HIGH);
+                        lightsActive = true;
+                    }
+                } else {
+                    Serial.println("No person detected in image");
+                }
+                
+                // Return the frame buffer
+                esp_camera_fb_return(fb);
+            }
+        } else {
+            motionDetected = false;
+        }
+    }
+    */
 }
 
 // -----------------------------------------------------------------------------------------
@@ -549,32 +801,49 @@ void checkWiFiConnection() {
 
 void loop()
 {
-    // 1. WiFi Management.
+    // 1. Check Wi-Fi Connection and Reconnect if Disconnected
     static unsigned long lastWiFiCheck = 0;
-    const unsigned long WIFI_CHECK_INTERVAL = 10000; // 10 seconds
+    const unsigned long WIFI_CHECK_INTERVAL = 10000; // Check every 10 seconds
     
     if (millis() - lastWiFiCheck > WIFI_CHECK_INTERVAL) {
-        checkWiFiConnection();
         lastWiFiCheck = millis();
+        checkWiFiConnection();
     }
 
-    // 2. Server Handling.
+    // 2. Handle incoming HTTP requests
     server.handleClient();
     
-    // 3. Detection Simulation (Test Mode).
-    #ifndef TRIGGER_MODE
-    static unsigned long lastDetection = 0;
-    const unsigned long DETECTION_INTERVAL = 45000; // 45 seconds
+    // 3. Check motion sensor at regular intervals.
+    checkMotionSensor();
     
-    if (millis() - lastDetection > DETECTION_INTERVAL) {
-        if (WiFi.status() == WL_CONNECTED) {
-            notifyGadget();
+    // 4. Check heartbeat.
+    if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+        lastHeartbeat = millis();
+        missedHeartbeats++;
+        
+        if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
+            Serial.println("[WARNING] Multiple heartbeats missed. Checking WiFi connection...");
+            checkWiFiConnection();
         }
-        lastDetection = millis();
     }
-    #endif
-
-    // 4. Basic delay to prevent overwhelming the system
+    
+    // 5. Handle alarm state.
+    if (alarmActive) {
+        // Toggle alarm for audible effect.
+        static unsigned long lastAlarmToggle = 0;
+        if (millis() - lastAlarmToggle >= 500) {  // Toggle every 500ms
+            lastAlarmToggle = millis();
+            digitalWrite(Alarm_Pin, !digitalRead(Alarm_Pin));
+            digitalWrite(RedLED_Pin, !digitalRead(RedLED_Pin));
+        }
+    }
+    
+    //Uncomment this section to test person detection notifications with the mobile app
+    // 6. Test person detection simulation
+    simulatePersonDetection();
+    
+    
+    // Small delay to prevent overwhelming the CPU
     delay(100);
 }
 
