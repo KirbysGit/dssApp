@@ -11,6 +11,7 @@ import '../providers/security_provider.dart';
 import '../models/security_state.dart';
 import './cameras_screen.dart';
 import './logs_screen.dart';
+import './test_gadget_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -482,6 +483,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
               selectedIcon: const Icon(Icons.camera_alt, color: Colors.white),
               label: 'Cameras',
             ),
+            NavigationDestination(
+              icon: Icon(Icons.build_outlined, color: Colors.white.withOpacity(0.7)),
+              selectedIcon: const Icon(Icons.build, color: Colors.white),
+              label: 'Test',
+            ),
           ],
           onDestinationSelected: (index) {
             switch (index) {
@@ -493,12 +499,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                 );
                 break;
               case 1:
-                // Already on home, do nothing
+                // Already on home screen
                 break;
               case 2:
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute(
                     builder: (context) => const CamerasScreen(),
+                  ),
+                );
+                break;
+              case 3:
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute(
+                    builder: (context) => const TestGadgetScreen(),
                   ),
                 );
                 break;
@@ -529,10 +542,10 @@ class StatusCard extends StatelessWidget {
   Future<void> _sendGadgetCommand(BuildContext context, String endpoint) async {
     debugPrint('\n========== SENDING GADGET COMMAND ==========');
     debugPrint('Endpoint: $endpoint');
-    debugPrint('Full URL: http://192.168.8.173$endpoint');
+    debugPrint('Full URL: http://192.168.8.131$endpoint');
     
     try {
-        final uri = Uri.parse('http://192.168.8.173$endpoint');
+        final uri = Uri.parse('http://192.168.8.131$endpoint');
         debugPrint('Sending HTTP GET request...');
         
         final response = await http.get(uri).timeout(

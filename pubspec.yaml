@@ -24,6 +24,8 @@ dependencies:
   lottie: ^2.7.0
   flutter_animate: ^4.3.0
   loading_animation_widget: ^1.2.0+4
+  network_info_plus: ^5.0.2
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
@@ -43,3 +45,4 @@ flutter:
     - assets/images/dylan.png
     - assets/images/phillip.png
     - assets/images/jaxon.png
+    - assets/animations/

@@ -358,6 +358,46 @@ void notifyNode(String endpoint) {
     }
 }
 
+//// -----------------------------------------------------------------------------------------
+// Test Gadget Switches.
+// -----------------------------------------------------------------------------------------
+
+// Test Trigger Alarm from Gadget from Mobile App.
+void handleTestTriggerAlarm() {
+    Serial.println("[TEST] Trigger Alarm Command Received");
+    notifyNode("/trigger_alarm");
+    server.send(200, "text/plain", "Test trigger alarm command executed");
+}
+
+// Test Turn Off Alarm from Gadget from Mobile App.
+void handleTestTurnOffAlarm() {
+    Serial.println("[TEST] Turn Off Alarm Command Received");
+    notifyNode("/turn_off_alarm");
+    server.send(200, "text/plain", "Test turn off alarm command executed");
+}
+
+// Test Turn On Lights from Gadget from Mobile App.
+void handleTestTurnOnLights() {
+    Serial.println("[TEST] Turn On Lights Command Received");
+    notifyNode("/turn_on_lights");
+    server.send(200, "text/plain", "Test turn on lights command executed");
+}
+
+// Test Turn Off Lights from Gadget from Mobile App.
+void handleTestTurnOffLights() {
+    Serial.println("[TEST] Turn Off Lights Command Received");
+    notifyNode("/turn_off_lights");
+    server.send(200, "text/plain", "Test turn off lights command executed");
+}
+
+// Test Restart Gadget from Gadget from Mobile App.
+void handleTestRestartGadget() {
+    Serial.println("[TEST] Restart Gadget Command Received");
+    server.send(200, "text/plain", "Restarting gadget...");
+    delay(1000);
+    ESP.restart();
+}
+
 // -----------------------------------------------------------------------------------------
 // Setup function that initializes ESP32-CAM.
 // -----------------------------------------------------------------------------------------
@@ -415,6 +455,13 @@ void setup()
       server.on("/person_status", HTTP_GET, handlePersonStatus);
       server.on("/person_detected", HTTP_POST, handlePersonDetected);
       server.on("/ping", HTTP_GET, handlePing);
+      server.on("/test_trigger_alarm", HTTP_GET, handleTestTriggerAlarm);
+
+      // Test endpoints.
+      server.on("/test_turn_off_alarm", HTTP_GET, handleTestTurnOffAlarm);
+      server.on("/test_turn_on_lights", HTTP_GET, handleTestTurnOnLights);
+      server.on("/test_turn_off_lights", HTTP_GET, handleTestTurnOffLights);
+      server.on("/test_restart_gadget", HTTP_GET, handleTestRestartGadget);
         
       // Start the web server.
       server.begin(); 
@@ -423,6 +470,13 @@ void setup()
       Serial.println("GET  /person_status - Check person detection status");
       Serial.println("POST /person_detected - Receive person detection notifications");
       Serial.println("GET  /ping - Check connection status");
+
+      // Test endpoints.
+      Serial.println("GET  /test_trigger_alarm - Test trigger alarm command");
+      Serial.println("GET  /test_turn_off_alarm - Test turn off alarm command");
+      Serial.println("GET  /test_turn_on_lights - Test turn on lights command");
+      Serial.println("GET  /test_turn_off_lights - Test turn off lights command");
+      Serial.println("GET  /test_restart_gadget - Restart gadget");
       Serial.println("--------------------------------");
   } else {
       // Turn LED off if failed.

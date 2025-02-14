@@ -700,7 +700,7 @@ void registerWithGadget() {
 
 void initializeHardware() {
     serialPrintWithDelay("\n========== INITIALIZING HARDWARE ==========");
-    
+    /*
     // Initialize input pins.
     pinMode(PassiveIR_Pin, INPUT);
     pinMode(ActiveIR_Pin, INPUT);
@@ -717,7 +717,7 @@ void initializeHardware() {
     digitalWrite(Alarm_Pin, LOW);
     digitalWrite(RedLED_Pin, LOW);
     digitalWrite(whitePin, LOW);
-    
+    */
     // Print notification.
     serialPrintWithDelay("PIR sensors initialized");
     serialPrintWithDelay("Output devices initialized");
