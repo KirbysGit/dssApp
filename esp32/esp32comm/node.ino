@@ -548,9 +548,10 @@ void handleHeartbeat() {
 // Called Upon Power Up or Reset.
 void setup()
 {
-    // Initialize Serial Communication.
+    // Initialize Serial Communication with a larger buffer
     Serial.begin(115200);
-    Serial.println("--------------------------------");
+    delay(100); // Give serial time to initialize
+    Serial.println("\n--------------------------------");
     Serial.println("Starting ESP32-CAM...");
     Serial.println("--------------------------------");
 
@@ -579,6 +580,7 @@ void setup()
 
     // Wait for Wi-Fi Connection.
     int attempts = 0;
+    Serial.print("\nConnecting to WiFi");
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {  // 20-second timeout
         delay(1000);
         Serial.print(".");
@@ -622,70 +624,67 @@ void setup()
 
     // Register with gadget after Wi-Fi connection.
     if (WiFi.status() == WL_CONNECTED) {
-        // Initialize HTTP client.
-        HTTPClient http;
-
-        // Construct URLs.
-        String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
-        String url = "http://" + String(GADGET_IP) + "/person_detected";
-        
-        // Log URLs.
-        Serial.println("\nRegistering camera with gadget...");
-        Serial.println("Camera URL: [" + cameraUrl + "]");
-        Serial.println("Gadget URL: [" + url + "]");
-        
-        // Attempt to begin HTTP connection.
-        if (!http.begin(url)) {
-            Serial.println("Failed to begin HTTP connection to gadget");
-            return;
-        }
-        
-        // Add headers.
-        http.addHeader("Content-Type", "application/json");
-        http.setTimeout(10000);  // 10 second timeout
-        
-        // Send registration message with proper JSON formatting.
-        String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
-        Serial.println("Sending registration message: " + message);
-        
-        // Send message.
-        int httpCode = http.POST(message);
-        Serial.printf("HTTP Response code: %d\n", httpCode);
-        
-        // Case for successful registration.
-        if (httpCode == HTTP_CODE_OK) {
-            String response = http.getString();
-            Serial.println("Gadget response: " + response);
-            Serial.println("Camera registered successfully with gadget");
-        } else {
-            // Case for failed registration.
-            Serial.printf("Failed to register camera with gadget, error code: %d\n", httpCode);
-            // Try a few more times if failed.
-            for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
-                delay(1000);
-                Serial.printf("Retry attempt %d...\n", i + 1);
-                httpCode = http.POST(message);
-                if(httpCode == HTTP_CODE_OK) {
-                    String response = http.getString();
-                    Serial.println("Gadget response: " + response);
-                    Serial.println("Camera registered successfully on retry");
-                    break;
-                }
-            }
-        }
-        
-        // End HTTP connection.
-        http.end();
+        Serial.println("\nRegistering with gadget...");
+        registerWithGadget();
     }
-
-    // Initialize PIR sensor pin if using TRIGGER_MODE.
-    #ifdef TRIGGER_MODE
-    pinMode(PassiveIR_Pin, INPUT);
-    Serial.println("PIR sensor initialized");
-    #endif
 
     // Initialize Hardware.
     initializeHardware();
+}
+
+// New function to handle gadget registration
+void registerWithGadget() {
+    HTTPClient http;
+    String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
+    String url = "http://" + String(GADGET_IP) + "/person_detected";
+    
+    Serial.println("Camera URL: " + cameraUrl);
+    Serial.println("Gadget URL: " + url);
+    
+    if (!http.begin(url)) {
+        Serial.println("[ERROR] Failed to begin HTTP connection");
+        return;
+    }
+    
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);
+    
+    String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+    Serial.println("Sending registration data...");
+    
+    int httpCode = http.POST(message);
+    Serial.printf("HTTP Response code: %d\n", httpCode);
+    
+    if (httpCode == HTTP_CODE_OK) {
+        // Read response in chunks to avoid buffer overflow
+        String response = http.getString();
+        Serial.println("Registration successful!");
+        Serial.println("Response length: " + String(response.length()) + " bytes");
+        
+        // Print response in chunks
+        const int chunkSize = 128;
+        for (size_t i = 0; i < response.length(); i += chunkSize) {
+            String chunk = response.substring(i, min(i + chunkSize, response.length()));
+            Serial.print(chunk);
+            delay(10); // Small delay between chunks
+        }
+        Serial.println(); // New line after complete response
+    } else {
+        Serial.printf("[ERROR] Registration failed, code: %d\n", httpCode);
+        // Try a few more times if failed
+        for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
+            delay(1000);
+            Serial.printf("Retry attempt %d...\n", i + 1);
+            httpCode = http.POST(message);
+            if(httpCode == HTTP_CODE_OK) {
+                Serial.println("Registration successful on retry!");
+                break;
+            }
+        }
+    }
+    
+    http.end();
+    Serial.println("Registration process completed");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -903,7 +902,7 @@ void loop()
         }
     }
     
-    //Uncomment this section to test person detection notifications with the mobile app
+    // Uncomment this section to test person detection notifications with the mobile app
     // 6. Test person detection simulation
     simulatePersonDetection();
     
