@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -525,6 +526,100 @@ class StatusCard extends StatelessWidget {
     required this.onAlarmOff,
   }) : super(key: key);
 
+  Future<void> _sendGadgetCommand(BuildContext context, String endpoint) async {
+    debugPrint('\n========== SENDING GADGET COMMAND ==========');
+    debugPrint('Endpoint: $endpoint');
+    debugPrint('Full URL: http://192.168.8.173$endpoint');
+    
+    try {
+        final uri = Uri.parse('http://192.168.8.173$endpoint');
+        debugPrint('Sending HTTP GET request...');
+        
+        final response = await http.get(uri).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+                debugPrint('Request timed out after 5 seconds');
+                throw TimeoutException('Request timed out');
+            },
+        );
+
+        debugPrint('Response status code: ${response.statusCode}');
+        debugPrint('Response body: ${response.body}');
+
+        if (response.statusCode == 200) {
+            debugPrint('Command sent successfully');
+            if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text('Command sent successfully: $endpoint'),
+                        backgroundColor: Colors.green,
+                        duration: const Duration(seconds: 2),
+                    ),
+                );
+            }
+        } else {
+            debugPrint('Failed with status code: ${response.statusCode}');
+            throw Exception('Server returned ${response.statusCode}: ${response.body}');
+        }
+    } catch (e, stackTrace) {
+        debugPrint('Error details:');
+        debugPrint('Exception: $e');
+        debugPrint('Stack trace: $stackTrace');
+        
+        if (context.mounted) {
+            String errorMessage = 'Failed to send command';
+            
+            // Provide more specific error messages
+            if (e is TimeoutException) {
+                errorMessage = 'Connection timed out. Check if the gadget is online.';
+            } else if (e is SocketException) {
+                errorMessage = 'Network error. Check your connection and gadget IP.';
+            } else if (e.toString().contains('Connection refused')) {
+                errorMessage = 'Connection refused. Check if the gadget is running.';
+            }
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                    content: Text(errorMessage),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 3),
+                    action: SnackBarAction(
+                        label: 'Details',
+                        textColor: Colors.white,
+                        onPressed: () {
+                            showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                    title: const Text('Error Details'),
+                                    content: SingleChildScrollView(
+                                        child: Text(
+                                            'Endpoint: $endpoint\n'
+                                            'Error: $e\n\n'
+                                            'Please check:\n'
+                                            '1. Gadget is powered on\n'
+                                            '2. Connected to the same network\n'
+                                            '3. IP address is correct (192.168.8.151)\n'
+                                            '4. No firewall blocking the connection'
+                                        ),
+                                    ),
+                                    actions: [
+                                        TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('Close'),
+                                        ),
+                                    ],
+                                ),
+                            );
+                        },
+                    ),
+                ),
+            );
+        }
+    } finally {
+        debugPrint('=========================================\n');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -544,10 +639,11 @@ class StatusCard extends StatelessWidget {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isLargeScreen ? 24.0 : 16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Status Section
                 Row(
                   children: [
                     _buildStatusIcon(),
@@ -568,24 +664,81 @@ class StatusCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (status.personDetected)
-                      ElevatedButton.icon(
-                        onPressed: onAlarmOff,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.withOpacity(0.8),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                        ),
-                        icon: const Icon(Icons.notifications_off),
-                        label: const Text('Stop Alarm'),
-                      ),
                   ],
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Control Buttons
+                Center(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      if (status.personDetected)
+                        _buildControlButton(
+                          context: context,
+                          endpoint: '/turn_off_alarm',
+                          icon: Icons.notifications_off,
+                          label: 'Stop Alarm',
+                          color: Colors.red.withOpacity(0.8),
+                        ),
+                      _buildControlButton(
+                        context: context,
+                        endpoint: '/trigger_alarm',
+                        icon: Icons.warning,
+                        label: 'Trigger Alarm',
+                        color: AppTheme.pineGreen.withOpacity(0.8),
+                      ),
+                      _buildControlButton(
+                        context: context,
+                        endpoint: '/turn_on_lights',
+                        icon: Icons.lightbulb,
+                        label: 'Toggle Lights',
+                        color: AppTheme.pineGreen.withOpacity(0.8),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required BuildContext context,
+    required String endpoint,
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return SizedBox(
+      height: 40,
+      child: ElevatedButton.icon(
+        onPressed: () {
+            debugPrint('\n========== BUTTON PRESSED ==========');
+            debugPrint('Button: $label');
+            debugPrint('Endpoint: $endpoint');
+            _sendGadgetCommand(context, endpoint);
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
+        ),
+        icon: Icon(icon, size: 20),
+        label: Text(
+          label,
+          style: TextStyle(
+            fontSize: isLargeScreen ? 14 : 13,
+            fontFamily: 'SF Pro Text',
           ),
         ),
       ),

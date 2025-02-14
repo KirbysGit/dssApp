@@ -398,19 +398,28 @@ void notifyGadget() {
 // -----------------------------------------------------------------------------------------
 
 void handleTriggerAlarm() {
-    // Print notification.
+    // Print detailed request information
     Serial.println("\n========== TRIGGER ALARM REQUEST ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Client IP: " + server.client().remoteIP().toString());
+    Serial.println("HTTP Method: " + server.method());
+    Serial.println("URI: " + server.uri());
     
-    // Activate alarm.
+    // Print request headers
+    Serial.println("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+    }
+    
+    // Activate alarm
     alarmActive = true;
     digitalWrite(Alarm_Pin, HIGH);
     digitalWrite(RedLED_Pin, HIGH);
     
-    // Send response.
-    server.send(200, "application/json", "{\"status\":\"alarm_triggered\"}");
-    Serial.println("Alarm activated successfully");
+    // Send detailed response
+    String response = "{\"status\":\"alarm_triggered\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    Serial.println("\nResponse sent: " + response);
     Serial.println("=========================================\n");
 }
 
@@ -419,19 +428,28 @@ void handleTriggerAlarm() {
 // -----------------------------------------------------------------------------------------
 
 void handleTurnOffAlarm() {
-    // Print notification.
+    // Print detailed request information
     Serial.println("\n========== TURN OFF ALARM REQUEST ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Client IP: " + server.client().remoteIP().toString());
+    Serial.println("HTTP Method: " + server.method());
+    Serial.println("URI: " + server.uri());
     
-    // Deactivate alarm.
+    // Print request headers
+    Serial.println("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+    }
+    
+    // Deactivate alarm
     alarmActive = false;
     digitalWrite(Alarm_Pin, LOW);
     digitalWrite(RedLED_Pin, LOW);
     
-    // Send response.
-    server.send(200, "application/json", "{\"status\":\"alarm_deactivated\"}");
-    Serial.println("Alarm deactivated successfully");
+    // Send detailed response
+    String response = "{\"status\":\"alarm_deactivated\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    Serial.println("\nResponse sent: " + response);
     Serial.println("=========================================\n");
 }
 
@@ -440,19 +458,28 @@ void handleTurnOffAlarm() {
 // -----------------------------------------------------------------------------------------
 
 void handleTurnOnLights() {
-    // Print notification.
+    // Print detailed request information
     Serial.println("\n========== TURN ON LIGHTS REQUEST ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Client IP: " + server.client().remoteIP().toString());
+    Serial.println("HTTP Method: " + server.method());
+    Serial.println("URI: " + server.uri());
     
-    // Activate lights.
+    // Print request headers
+    Serial.println("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+    }
+    
+    // Activate lights
     lightsActive = true;
     digitalWrite(LEDStrip_Pin, HIGH);
     digitalWrite(whitePin, HIGH);
     
-    // Send response.
-    server.send(200, "application/json", "{\"status\":\"lights_activated\"}");
-    Serial.println("Lights activated successfully");
+    // Send detailed response
+    String response = "{\"status\":\"lights_activated\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    Serial.println("\nResponse sent: " + response);
     Serial.println("=========================================\n");
 }
 
@@ -461,19 +488,28 @@ void handleTurnOnLights() {
 // -----------------------------------------------------------------------------------------
 
 void handleTurnOffLights() {
-    // Print notification.
+    // Print detailed request information
     Serial.println("\n========== TURN OFF LIGHTS REQUEST ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Client IP: " + server.client().remoteIP().toString());
+    Serial.println("HTTP Method: " + server.method());
+    Serial.println("URI: " + server.uri());
     
-    // Deactivate lights.
+    // Print request headers
+    Serial.println("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+    }
+    
+    // Deactivate lights
     lightsActive = false;
     digitalWrite(LEDStrip_Pin, LOW);
     digitalWrite(whitePin, LOW);
     
-    // Send response.
-    server.send(200, "application/json", "{\"status\":\"lights_deactivated\"}");
-    Serial.println("Lights deactivated successfully");
+    // Send detailed response
+    String response = "{\"status\":\"lights_deactivated\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    Serial.println("\nResponse sent: " + response);
     Serial.println("=========================================\n");
 }
 
@@ -568,6 +604,17 @@ void setup()
     server.on("/turn_on_lights", HTTP_GET, handleTurnOnLights);
     server.on("/turn_off_lights", HTTP_GET, handleTurnOffLights);
     server.on("/heartbeat", HTTP_GET, handleHeartbeat);
+    
+    // Add handler for undefined endpoints
+    server.onNotFound([]() {
+        Serial.println("\n========== 404 NOT FOUND ==========");
+        Serial.println("Time: " + String(millis()));
+        Serial.println("Client IP: " + server.client().remoteIP().toString());
+        Serial.println("Requested URI: " + server.uri());
+        Serial.println("HTTP Method: " + server.method());
+        server.send(404, "text/plain", "Endpoint not found");
+        Serial.println("==================================\n");
+    });
     
     // Start HTTP server.
     server.begin();
@@ -810,10 +857,26 @@ void loop()
         checkWiFiConnection();
     }
 
-    // 2. Handle incoming HTTP requests
+    // 2. Handle incoming HTTP requests with status indicator
+    static unsigned long lastRequestTime = 0;
+    static bool isHandlingRequest = false;
+    
+    if (server.client()) {
+        if (!isHandlingRequest) {
+            isHandlingRequest = true;
+            lastRequestTime = millis();
+            digitalWrite(RedLED_Pin, HIGH); // Visual indicator that we're handling a request
+        }
+    }
+    
     server.handleClient();
     
-    // 3. Check motion sensor at regular intervals.
+    if (isHandlingRequest && millis() - lastRequestTime > 100) {
+        isHandlingRequest = false;
+        digitalWrite(RedLED_Pin, LOW);
+    }
+    
+    // 3. Check motion sensor at regular intervals
     checkMotionSensor();
     
     // 4. Check heartbeat.
@@ -829,12 +892,14 @@ void loop()
     
     // 5. Handle alarm state.
     if (alarmActive) {
-        // Toggle alarm for audible effect.
+        // Toggle alarm for audible effect and LED for visual feedback.
         static unsigned long lastAlarmToggle = 0;
         if (millis() - lastAlarmToggle >= 500) {  // Toggle every 500ms
             lastAlarmToggle = millis();
             digitalWrite(Alarm_Pin, !digitalRead(Alarm_Pin));
             digitalWrite(RedLED_Pin, !digitalRead(RedLED_Pin));
+            // Also flash the white LED for additional visibility
+            digitalWrite(whitePin, !digitalRead(whitePin));
         }
     }
     
