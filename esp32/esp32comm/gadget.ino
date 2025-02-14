@@ -28,14 +28,13 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// Add SPIFFS for file storage
-#include <SPIFFS.h>
+// Kirby's Hotspot.
+/*
+ * const char* WIFI_SSID = "mi telefono";
+ * const char* WIFI_PASS = "password";
+*/
 
-// PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
-// MUST USE 2.4GHz wifi band.
-// const char* WIFI_SSID = "mi telefono";
-// const char* WIFI_PASS = "password";
-
+// Microrouter Network.
 const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
 const char* WIFI_PASS = "goodlife";
 
@@ -66,7 +65,6 @@ const int LED = 21;
 // uint8_t* psramBuffer = nullptr;
 // const int PSRAM_BUF_SIZE = 500 * 1024; // Adjust as needed
 
-
 // For future use to scale message handling.
 // enum RequestType {
 //   REQUEST_TYPE_IMAGE_UPLOAD,
@@ -81,211 +79,48 @@ const int LED = 21;
 //   // ... add other allowed IP addresses
 // };
 
-// Global variables for image handling
-uint8_t* lastImage = nullptr;
-size_t lastImageSize = 0;
-bool personDetected = false;
+// -----------------------------------------------------------------------------------------
+// Camera Node Struct.
+// -----------------------------------------------------------------------------------------
 
-// Add at the top with other globals
 struct CameraNode {
   String url;
   String name;
   unsigned long lastSeen;
 };
 
+// Max number of cameras.
 #define MAX_CAMERAS 5
+
+// Camera node array.
 CameraNode cameras[MAX_CAMERAS];
+
+// Number of cameras.
 int numCameras = 0;
 
-// ----
-// CODE
-// ----
+// Person detection flag.
+bool personDetected = false;
 
-// Handle incoming image POST request
-void handleImageUpload() {
-  Serial.println("Receiving image upload request...");
-    
-  // Print all headers for debugging
-  for (int i = 0; i < server.headers(); i++) {
-    Serial.printf("Header[%s]: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
-  }
+// -----------------------------------------------------------------------------------------
+// Person Detection Handler.
+// -----------------------------------------------------------------------------------------
 
-  String contentType = server.header("Content-Type");
-  String contentLength = server.header("Content-Length");
-
-  Serial.println("Headers received:");
-  Serial.println("Content-Type: " + contentType);
-  Serial.println("Content-Length: " + contentLength);
-
-  // Check for image/jpeg content type (case-insensitive comparison)
-  if (contentType.indexOf("image/jpeg") == -1 && contentType.indexOf("IMAGE/JPEG") == -1) {
-    Serial.println("Invalid content type: " + contentType);
-    server.send(400, "text/plain", "Invalid content type - expected image/jpeg");
-    return;
-  }
-
-  int contentLen = contentLength.toInt();
-  if (contentLen <= 0) {
-    Serial.println("Invalid content length: " + contentLength);
-    server.send(400, "text/plain", "Invalid content length");
-    return;
-  }
-
-  Serial.printf("Preparing to receive %d bytes of image data\n", contentLen);
-
-  // Allocate buffer for the image
-  uint8_t* buffer = new uint8_t[contentLen];
-  if (!buffer) {
-    Serial.println("Failed to allocate memory for buffer");
-    server.send(500, "text/plain", "Server memory error");
-    return;
-  }
-
-  // Read the raw POST data
-  size_t receivedLength = 0;
-  WiFiClient client = server.client();
-  unsigned long timeout = millis() + 10000; // 10 second timeout
-
-  while (receivedLength < contentLen && millis() < timeout) {
-    if (client.available()) {
-      buffer[receivedLength] = client.read();
-      receivedLength++;
-        
-      if (receivedLength % 1024 == 0) {
-        Serial.printf("Received %d bytes of %d\n", receivedLength, contentLen);
-      }
-    }
-    yield();
-  }
-
-  Serial.printf("Received total: %d bytes\n", receivedLength);
-
-  // Print first few bytes for debugging
-  Serial.print("First 32 bytes received: ");
-  for (int i = 0; i < min(32, (int)receivedLength); i++) {
-    Serial.printf("%02X ", buffer[i]);
-  }
-  Serial.println();
-
-  // Verify JPEG header (FF D8 FF)
-  if (receivedLength >= 3 && 
-      buffer[0] == 0xFF && 
-      buffer[1] == 0xD8 && 
-      buffer[2] == 0xFF) {
-      
-    // Store the image
-    if (lastImage != nullptr) {
-      delete[] lastImage;
-    }
-      
-    lastImage = new uint8_t[receivedLength];
-    if (lastImage != nullptr) {
-      memcpy(lastImage, buffer, receivedLength);
-      lastImageSize = receivedLength;
-      personDetected = true;
-        
-      Serial.printf("Successfully stored JPEG image: %d bytes\n", receivedLength);
-      server.send(200, "text/plain", "Image received");
-    } else {
-      Serial.println("Failed to allocate memory for image storage");
-      server.send(500, "text/plain", "Server memory error");
-    }
-  } else {
-    Serial.println("Invalid JPEG format");
-    server.send(400, "text/plain", "Invalid JPEG format");
-  }
-
-  delete[] buffer;
-}
-
-// Modified to fetch image from ESP32-CAM
-void handleGetLatestImage() {
-  Serial.println("Received request for latest image");
-    
-  if (numCameras == 0) {
-    Serial.println("No cameras registered");
-    server.send(404, "text/plain", "No cameras registered");
-    return;
-  }
-    
-  // Find most recently active camera
-  int latestCamera = 0;
-  unsigned long mostRecent = 0;
-    
-  for (int i = 0; i < numCameras; i++) {
-    if (cameras[i].lastSeen > mostRecent) {
-      mostRecent = cameras[i].lastSeen;
-      latestCamera = i;
-    }
-  }
-    
-  Serial.printf("Fetching image from camera: %s at %s\n", 
-                cameras[latestCamera].name.c_str(), 
-                cameras[latestCamera].url.c_str());
-    
-  HTTPClient http;
-  WiFiClient client;
-    
-  if (!http.begin(client, cameras[latestCamera].url)) {
-    Serial.println("Failed to connect to camera");
-    server.send(502, "text/plain", "Failed to connect to camera");
-    return;
-  }
-    
-  int httpCode = http.GET();
-  Serial.printf("Camera response code: %d\n", httpCode);
-    
-  if (httpCode == HTTP_CODE_OK) {
-    String contentType = http.header("Content-Type");
-    int len = http.getSize();
-      
-    Serial.printf("Received image from camera: %d bytes\n", len);
-      
-    server.sendHeader("Content-Type", contentType);
-    server.sendHeader("Cache-Control", "no-cache");
-    server.setContentLength(len);
-    server.send(200);
-      
-    // Stream the data
-    uint8_t buffer[1024];
-    WiFiClient* stream = http.getStreamPtr();
-      
-    while (http.connected() && (len > 0 || len == -1)) {
-      size_t size = stream->available();
-      if (size) {
-        int c = stream->readBytes(buffer, ((size > sizeof(buffer)) ? sizeof(buffer) : size));
-        server.client().write(buffer, c);
-        if (len > 0) {
-          len -= c;
-        }
-      }
-      yield();
-    }
-      
-    Serial.println("Image sent to client successfully");
-  } else {
-    Serial.printf("Failed to get image from camera: %d\n", httpCode);
-    server.send(502, "text/plain", "Failed to get image from camera");
-  }
-    
-  http.end();
-}
-
-// Modified person detection handler
 void handlePersonDetected() {
+  // Print person detection notification.
   Serial.println("\n========== PERSON DETECTION NOTIFICATION ==========");
   Serial.println("Time: " + String(millis()));
   Serial.println("Sender IP: " + server.client().remoteIP().toString());
     
-  // Print raw POST data
+  // Print raw POST data.
   String postBody = server.arg("plain");
   Serial.println("\nReceived POST data: [" + postBody + "]");
   Serial.println("POST data length: " + String(postBody.length()));
 
-  // Create a JSON document
+  // Create a JSON document.
   StaticJsonDocument<200> doc;
   DeserializationError error = deserializeJson(doc, postBody);
 
+  // Check for JSON parsing errors.
   if (error) {
       Serial.print("[ERROR] JSON parsing failed! Error: ");
       Serial.println(error.c_str());
@@ -294,16 +129,18 @@ void handlePersonDetected() {
       return;
   }
 
-  // Extract values from JSON
+  // Extract values from JSON.
   const char* cameraUrl = doc["camera_url"];
   const char* nodeName = doc["node"];
   const char* timestamp = doc["timestamp"];
 
+  // Print parsed JSON values.
   Serial.println("\nParsed JSON values:");
   Serial.println("Camera URL: [" + String(cameraUrl ? cameraUrl : "null") + "]");
   Serial.println("Node Name: [" + String(nodeName ? nodeName : "null") + "]");
   Serial.println("Timestamp: [" + String(timestamp ? timestamp : "null") + "]");
 
+  // Check for missing or empty camera URL or node name.
   if (!cameraUrl || strlen(cameraUrl) == 0 || !nodeName || strlen(nodeName) == 0) {
       Serial.println("[ERROR] Missing or empty camera URL or node name");
       server.send(400, "text/plain", "Missing or empty camera URL or node name");
@@ -321,7 +158,8 @@ void handlePersonDetected() {
           break;
       }
   }
-    
+
+  // Add new camera to our list.
   if (!found && numCameras < MAX_CAMERAS) {
       cameras[numCameras].url = cameraUrl;
       cameras[numCameras].name = nodeName;
@@ -342,10 +180,11 @@ void handlePersonDetected() {
   response += "\"node\":\"" + String(nodeName) + "\",";
   response += "\"timestamp\":\"" + String(timestamp ? timestamp : "") + "\"";
   response += "}";
-    
+  
+  // Send response.
   server.send(200, "application/json", response);
     
-  // Blink LED to indicate detection
+  // Blink LED to indicate detection.
   digitalWrite(LED, HIGH);
   delay(100);
   digitalWrite(LED, LOW);
@@ -353,13 +192,18 @@ void handlePersonDetected() {
   Serial.println("==============================================\n");
 }
 
-// Modified person status endpoint
+// -----------------------------------------------------------------------------------------
+// Person Status Endpoint.
+// -----------------------------------------------------------------------------------------
+
 void handlePersonStatus() {
-  // Create response JSON
+
+  // Create response JSON.
   String response = "{";
   response += "\"personDetected\":" + String(personDetected ? "true" : "false") + ",";
   response += "\"cameras\":[";
     
+  // Iterate through cameras and add to response.
   for (int i = 0; i < numCameras; i++) {
       if (i > 0) response += ",";
       response += "{";
@@ -368,174 +212,43 @@ void handlePersonStatus() {
       response += "\"lastSeen\":" + String(cameras[i].lastSeen);
       response += "}";
   }
-    
+  
+  // Close response.
   response += "]}";
     
+  // Send response.
   server.send(200, "application/json", response);
     
-    // Reset person detected flag after sending status
+  // Reset person detected flag after sending status.
   personDetected = false;
 }
 
-// Handle direct camera capture
-void handleCapture() {
-  Serial.println("\n========== RECEIVING IMAGE ==========");
-  Serial.println("Time: " + String(millis()));
-  Serial.println("Sender IP: " + server.client().remoteIP().toString());
-    
-  // Print all headers for debugging
-  Serial.println("\nReceived Headers:");
-  for (int i = 0; i < server.headers(); i++) {
-      String headerName = server.headerName(i);
-      String headerValue = server.header(i);
-      Serial.printf("Header[%s]: [%s]\n", headerName.c_str(), headerValue.c_str());
-  }
-    
-  // Verify Content-Type
-  String contentType = server.header("Content-Type");
-  if (contentType.isEmpty()) {
-      Serial.println("[ERROR] Missing Content-Type header");
-      server.send(400, "text/plain", "Missing Content-Type header");
-      return;
-  }
-    
-  // Case-insensitive check for image/jpeg
-  contentType.toLowerCase();
-  if (contentType.indexOf("image/jpeg") == -1) {
-      Serial.printf("[ERROR] Invalid Content-Type: [%s]\n", contentType.c_str());
-      server.send(400, "text/plain", "Invalid Content-Type - expected image/jpeg");
-      return;
-  }
-    
-  // Get and validate Content-Length
-  String contentLength = server.header("Content-Length");
-  if (contentLength.isEmpty()) {
-      Serial.println("[ERROR] Missing Content-Length header");
-      server.send(400, "text/plain", "Missing Content-Length header");
-      return;
-  }
-    
-  Serial.println("\nContent-Length: " + contentLength);
-  int imageSize = contentLength.toInt();
-    
-  if (imageSize <= 0 || imageSize > 150000) {  // Max 150KB for safety
-      Serial.printf("[ERROR] Invalid Content-Length: %d\n", imageSize);
-      server.send(400, "text/plain", "Invalid Content-Length");
-      return;
-  }
+// -----------------------------------------------------------------------------------------
+// Ping Handler.
+// -----------------------------------------------------------------------------------------
 
-  // Free previous image if it exists
-  if (lastImage != nullptr) {
-      Serial.println("Freeing previous image buffer");
-      delete[] lastImage;
-      lastImage = nullptr;
-      lastImageSize = 0;
-  }
-    
-  // Allocate buffer for the new image
-  Serial.printf("Allocating %d bytes for image\n", imageSize);
-  lastImage = new uint8_t[imageSize];
-  if (!lastImage) {
-      Serial.println("[ERROR] Failed to allocate memory");
-      server.send(500, "text/plain", "Server memory error");
-      return;
-  }
-
-  // Read the image data
-  WiFiClient client = server.client();
-  size_t receivedLength = 0;
-  unsigned long timeout = millis() + 10000; // 10 second timeout
-  unsigned long lastProgress = millis();
-  bool timeoutOccurred = false;
-
-  Serial.println("\nReceiving image data...");
-  while (receivedLength < imageSize && !timeoutOccurred) {
-      if (millis() > timeout) {
-          timeoutOccurred = true;
-          break;
-      }
-
-      if (client.available()) {
-          lastImage[receivedLength] = client.read();
-          receivedLength++;
-            
-          // Print progress every 4KB or if no progress update in 2 seconds
-          if (receivedLength % 4096 == 0 || millis() - lastProgress >= 2000) {
-              Serial.printf("Received %d/%d bytes (%.1f%%)\n", 
-                          receivedLength, imageSize,
-                          (receivedLength * 100.0) / imageSize);
-              lastProgress = millis();
-          }
-      }
-      yield();  // Allow background tasks to run
-  }
-
-  if (timeoutOccurred) {
-      Serial.printf("[ERROR] Timeout while receiving data. Got %d/%d bytes\n", 
-                    receivedLength, imageSize);
-      delete[] lastImage;
-      lastImage = nullptr;
-      lastImageSize = 0;
-      server.send(408, "text/plain", "Request timeout");
-      return;
-  }
-
-  // Check if we got all the data
-  if (receivedLength == imageSize) {
-      // Verify JPEG header
-      if (receivedLength >= 3 && 
-          lastImage[0] == 0xFF && 
-          lastImage[1] == 0xD8 && 
-          lastImage[2] == 0xFF) {
-          
-          lastImageSize = imageSize;
-          personDetected = true;
-            
-          Serial.printf("\nSuccessfully received valid JPEG image: %d bytes\n", imageSize);
-          Serial.print("First 32 bytes: ");
-          for (int i = 0; i < min(32, (int)imageSize); i++) {
-              Serial.printf("%02X ", lastImage[i]);
-          }
-          Serial.println();
-            
-          server.send(200, "text/plain", "Image received successfully");
-            
-          // Blink LED to indicate successful reception
-          digitalWrite(LED, HIGH);
-          delay(100);
-          digitalWrite(LED, LOW);
-      } else {
-          Serial.println("[ERROR] Invalid JPEG format");
-          Serial.print("First 32 bytes: ");
-          for (int i = 0; i < min(32, (int)receivedLength); i++) {
-              Serial.printf("%02X ", lastImage[i]);
-          }
-          Serial.println();
-            
-          delete[] lastImage;
-          lastImage = nullptr;
-          lastImageSize = 0;
-          server.send(400, "text/plain", "Invalid JPEG format");
-      }
-  } else {
-      Serial.printf("[ERROR] Incomplete image data. Expected %d bytes, got %d bytes\n", 
-                    imageSize, receivedLength);
-      delete[] lastImage;
-      lastImage = nullptr;
-      lastImageSize = 0;
-      server.send(400, "text/plain", "Incomplete image data");
-  }
-    
-  Serial.println("====================================\n");
+void handlePing() {
+    Serial.println("\n========== PING REQUEST ==========");
+    Serial.println("Time: " + String(millis()));
+    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    Serial.println("Connection Status: " + String(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected"));
+    Serial.println("Signal Strength (RSSI): " + String(WiFi.RSSI()) + " dBm");
+    Serial.println("=================================\n");
+      
+    server.send(200, "application/json", "{\"status\":\"connected\"}");
 }
+
+// -----------------------------------------------------------------------------------------
+// Setup function that initializes ESP32-CAM.
+// -----------------------------------------------------------------------------------------
 
 void setup()
 {
-  // Initialize LED pin
+  // Initialize LED pin.
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
 
-  // Start serial communication
+  // Start serial communication.
   Serial.begin(115200);
   Serial.println("--------------------------------");
   Serial.println("Starting ESP32-S3 Gadget...");
@@ -545,20 +258,24 @@ void setup()
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  // Wait for wifi to connect
+  // Wait for wifi to connect.
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
       delay(1000);
       Serial.print(".");
       attempts++;
         
-      // Blink LED to show we're trying to connect
+      // Blink LED to show we're trying to connect.
       digitalWrite(LED, !digitalRead(LED));
   }
 
-  // Wifi connection result
+  // Wifi connection result.
   if (WiFi.status() == WL_CONNECTED) {
-      digitalWrite(LED, HIGH);  // Turn LED on when connected
+
+      // Turn LED on when connected.  
+      digitalWrite(LED, HIGH);
+
+      // Print connection success.
       Serial.println("\n----------------------------");
       Serial.println("WiFi Connected Successfully!");
       Serial.print("ESP32-S3 IP Address: ");
@@ -567,38 +284,25 @@ void setup()
       Serial.print(WiFi.RSSI());
       Serial.println(" dBm");
       Serial.println("----------------------------\n");
-        
-      // Initialize SPIFFS
-      if (!SPIFFS.begin(true)) {
-          Serial.println("[ERROR] SPIFFS initialization failed!");
-          return;
-      }
 
-      // Setup server endpoints
-      server.on("/capture", HTTP_POST, handleCapture);
-      server.on("/latest_image", HTTP_GET, handleGetLatestImage);
+      // Setup server endpoints.  
       server.on("/person_status", HTTP_GET, handlePersonStatus);
       server.on("/person_detected", HTTP_POST, handlePersonDetected);
-      server.on("/ping", HTTP_GET, []() {
-          Serial.println("\n========== PING REQUEST ==========");
-          Serial.println("Time: " + String(millis()));
-          Serial.println("Client IP: " + server.client().remoteIP().toString());
-          Serial.println("Connection Status: " + String(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected"));
-          Serial.println("Signal Strength (RSSI): " + String(WiFi.RSSI()) + " dBm");
-          Serial.println("=================================\n");
-            
-          server.send(200, "application/json", "{\"status\":\"connected\"}");
-      });
+      server.on("/ping", HTTP_GET, handlePing);
         
-      // Start the web server
-      server.begin();
+      // Start the web server.
+      server.begin(); 
       Serial.println("HTTP server started successfully");
       Serial.println("Available endpoints:");
-      Serial.println("GET  /latest_image - Get most recent camera image");
       Serial.println("GET  /person_status - Check person detection status");
       Serial.println("POST /person_detected - Receive person detection notifications");
+      Serial.println("GET  /ping - Check connection status");
+      Serial.println("--------------------------------");
   } else {
-      digitalWrite(LED, LOW);  // Turn LED off if failed
+      // Turn LED off if failed.
+      digitalWrite(LED, LOW);
+
+      // Print error.
       Serial.println("\n[ERROR] Failed to connect to WiFi after 30 attempts.");
       Serial.println("Please check your WiFi credentials and router settings.");
       Serial.println("Restarting in 5 seconds...");
@@ -607,31 +311,43 @@ void setup()
   }
 }
 
+// -----------------------------------------------------------------------------------------
 // Main loop that continously listens for client requests.
+// -----------------------------------------------------------------------------------------
+
 void loop()
 {
   // Check Wi-Fi Connection and Reconnect if Disconnected
   static unsigned long lastWiFiCheck = 0;
-  if (millis() - lastWiFiCheck > 10000) {  // Check every 10 seconds
+
+  // Check Wi-Fi connection every 10 seconds.
+  if (millis() - lastWiFiCheck > 10000) {
       lastWiFiCheck = millis();
       if (WiFi.status() != WL_CONNECTED) {
           Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
-          digitalWrite(LED, LOW);  // Turn LED off while disconnected
+          digitalWrite(LED, LOW);
+
+          // Disconnect and reconnect.
           WiFi.disconnect();
           WiFi.reconnect();
+
+          // Attempts to reconnect.
           int attempts = 0;
+          
+          // Blink LED to show we're trying to reconnect.
           while (WiFi.status() != WL_CONNECTED && attempts < 20) {
               delay(1000);
               Serial.print(".");
               attempts++;
-              // Blink LED while trying to reconnect
               digitalWrite(LED, !digitalRead(LED));
           }
 
+          // Reconnect success.
           if (WiFi.status() == WL_CONNECTED) {
               Serial.println("\nWi-Fi reconnected successfully!");
-              digitalWrite(LED, HIGH);  // Turn LED back on when connected
+              digitalWrite(LED, HIGH);
           } else {
+              // Print error and restart.
               Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
               delay(5000);
               ESP.restart();

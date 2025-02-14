@@ -380,7 +380,7 @@ void notifyGadget() {
     http.end();
 }
 
-// -----------------------------------------------------------------------------------------s
+// -----------------------------------------------------------------------------------------
 // Setup function that initializes ESP32-CAM.
 // -----------------------------------------------------------------------------------------
 
@@ -507,6 +507,38 @@ void setup()
     pinMode(PassiveIR_Pin, INPUT);
     Serial.println("PIR sensor initialized");
     #endif
+}
+
+// -----------------------------------------------------------------------------------------
+// WiFi Connection Check.
+// -----------------------------------------------------------------------------------------
+
+void checkWiFiConnection() {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
+        
+        // Disconnect and reconnect
+        WiFi.disconnect();
+        WiFi.reconnect();
+        
+        // Attempt to reconnect
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(1000);
+            Serial.print(".");
+            attempts++;
+        }
+        
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("\nWi-Fi reconnected successfully!");
+            Serial.print("ESP32-CAM IP Address: ");
+            Serial.println(WiFi.localIP());
+        } else {
+            Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
+            delay(5000);
+            ESP.restart();
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------
