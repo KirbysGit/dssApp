@@ -99,6 +99,17 @@ const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 secon
 const int MAX_MISSED_HEARTBEATS = 5;
 int missedHeartbeats = 0;
 
+// Add this helper function near the top of the file after the constants
+void serialPrintWithFlush(const String& message, bool newLine = true) {
+    if (newLine) {
+        Serial.println(message);
+    } else {
+        Serial.print(message);
+    }
+    Serial.flush();
+    delay(5);  // Small delay to ensure buffer is cleared
+}
+
 // ----
 // CODE
 // ----
@@ -338,7 +349,7 @@ void handleCapture() {
 void notifyGadget() {
     // Ensure Wi-Fi is connected.
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[ERROR] Wi-Fi Disconnected! Cannot send notification.");
+        serialPrintWithFlush("[ERROR] Wi-Fi Disconnected! Cannot send notification.");
         return;
     }
 
@@ -350,13 +361,13 @@ void notifyGadget() {
     String url = "http://" + String(GADGET_IP) + "/person_detected";
     
     // Log URLs.
-    Serial.println("Sending notification to gadget...");
-    Serial.println("Camera URL: " + cameraUrl);
-    Serial.println("Gadget URL: " + url);
+    serialPrintWithFlush("\n--- Sending Notification to Gadget ---");
+    serialPrintWithFlush("Camera URL: " + cameraUrl);
+    serialPrintWithFlush("Gadget URL: " + url);
     
     // Attempt to begin HTTP connection.
     if (!http.begin(url)) {
-        Serial.println("[ERROR] Failed to begin HTTP connection");
+        serialPrintWithFlush("[ERROR] Failed to begin HTTP connection");
         return;
     }
     
@@ -366,31 +377,40 @@ void notifyGadget() {
     // Create JSON with camera information and timestamp.
     String timestamp = "2025-01-20T12:34:56Z";  // In real implementation, get actual timestamp
     String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\",\"timestamp\":\"" + timestamp + "\"}";
-    Serial.println("Sending message: " + message);
+    serialPrintWithFlush("Sending message: " + message);
     
     // Increase timeout to allow network recovery.
     http.setTimeout(10000);  // 10 seconds
     
     // Send message.
     int httpCode = http.POST(message);
-    Serial.printf("HTTP Response code: %d\n", httpCode);
+    serialPrintWithFlush("HTTP Response code: " + String(httpCode));
     
     // Case for successful notification.
     if (httpCode == HTTP_CODE_OK) {
         String response = http.getString();
-        Serial.println("Server response: " + response);
-        Serial.println("Notification sent successfully");
+        serialPrintWithFlush("Response received, length: " + String(response.length()) + " bytes");
+        
+        // Print response in chunks
+        const int chunkSize = 64;
+        for (size_t i = 0; i < response.length(); i += chunkSize) {
+            String chunk = response.substring(i, min(i + chunkSize, response.length()));
+            serialPrintWithFlush(chunk, false);
+        }
+        serialPrintWithFlush("");  // Final newline
+        serialPrintWithFlush("Notification sent successfully");
     } else {
         // Case for failed notification.
-        Serial.printf("[ERROR] Failed to send notification, HTTP error: %d\n", httpCode);
+        serialPrintWithFlush("[ERROR] Failed to send notification, HTTP error: " + String(httpCode));
         if (httpCode > 0) {
             String response = http.getString();
-            Serial.println("Server response: " + response);
+            serialPrintWithFlush("Error response: " + response);
         }
     }
     
     // End HTTP connection.
     http.end();
+    serialPrintWithFlush("--- Notification Process Completed ---");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -638,11 +658,12 @@ void registerWithGadget() {
     String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
     String url = "http://" + String(GADGET_IP) + "/person_detected";
     
-    Serial.println("Camera URL: " + cameraUrl);
-    Serial.println("Gadget URL: " + url);
+    serialPrintWithFlush("\n--- Starting Registration Process ---");
+    serialPrintWithFlush("Camera URL: " + cameraUrl);
+    serialPrintWithFlush("Gadget URL: " + url);
     
     if (!http.begin(url)) {
-        Serial.println("[ERROR] Failed to begin HTTP connection");
+        serialPrintWithFlush("[ERROR] Failed to begin HTTP connection");
         return;
     }
     
@@ -650,41 +671,40 @@ void registerWithGadget() {
     http.setTimeout(10000);
     
     String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
-    Serial.println("Sending registration data...");
+    serialPrintWithFlush("Sending registration data...");
     
     int httpCode = http.POST(message);
-    Serial.printf("HTTP Response code: %d\n", httpCode);
+    serialPrintWithFlush("HTTP Response code: " + String(httpCode));
     
     if (httpCode == HTTP_CODE_OK) {
-        // Read response in chunks to avoid buffer overflow
         String response = http.getString();
-        Serial.println("Registration successful!");
-        Serial.println("Response length: " + String(response.length()) + " bytes");
+        serialPrintWithFlush("Registration successful!");
+        serialPrintWithFlush("Response length: " + String(response.length()) + " bytes");
         
-        // Print response in chunks
-        const int chunkSize = 128;
+        // Print response in smaller chunks with delays
+        const int chunkSize = 64;  // Reduced chunk size
+        serialPrintWithFlush("Response content:");
         for (size_t i = 0; i < response.length(); i += chunkSize) {
             String chunk = response.substring(i, min(i + chunkSize, response.length()));
-            Serial.print(chunk);
-            delay(10); // Small delay between chunks
+            serialPrintWithFlush(chunk, false);  // Print without newline
         }
-        Serial.println(); // New line after complete response
+        serialPrintWithFlush("");  // Final newline
     } else {
-        Serial.printf("[ERROR] Registration failed, code: %d\n", httpCode);
+        serialPrintWithFlush("[ERROR] Registration failed, code: " + String(httpCode));
         // Try a few more times if failed
         for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
             delay(1000);
-            Serial.printf("Retry attempt %d...\n", i + 1);
+            serialPrintWithFlush("Retry attempt " + String(i + 1) + "...");
             httpCode = http.POST(message);
             if(httpCode == HTTP_CODE_OK) {
-                Serial.println("Registration successful on retry!");
+                serialPrintWithFlush("Registration successful on retry!");
                 break;
             }
         }
     }
     
     http.end();
-    Serial.println("Registration process completed");
+    serialPrintWithFlush("--- Registration Process Completed ---");
 }
 
 // -----------------------------------------------------------------------------------------
