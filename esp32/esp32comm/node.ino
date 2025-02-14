@@ -99,15 +99,23 @@ const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 secon
 const int MAX_MISSED_HEARTBEATS = 5;
 int missedHeartbeats = 0;
 
-// Add this helper function near the top of the file after the constants
-void serialPrintWithFlush(const String& message, bool newLine = true) {
+// Add these helper functions at the top of the file after the constants
+void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) {
     if (newLine) {
         Serial.println(message);
     } else {
         Serial.print(message);
     }
     Serial.flush();
-    delay(5);  // Small delay to ensure buffer is cleared
+    delay(delayMs);  // Allow time for the buffer to clear
+}
+
+void printChunked(const String& message, int chunkSize = 32) {
+    for (size_t i = 0; i < message.length(); i += chunkSize) {
+        String chunk = message.substring(i, min(i + chunkSize, message.length()));
+        serialPrintWithDelay(chunk, false, 5);
+    }
+    serialPrintWithDelay("", true, 10);  // Final newline
 }
 
 // ----
@@ -119,7 +127,7 @@ void serialPrintWithFlush(const String& message, bool newLine = true) {
 // -----------------------------------------------------------------------------------------
 
 bool initCamera() {
-    Serial.println("\n========== INITIALIZING CAMERA ==========");
+    serialPrintWithDelay("\n========== INITIALIZING CAMERA ==========");
     
     using namespace esp32cam;
     Config cfg;
@@ -132,11 +140,11 @@ bool initCamera() {
     
     bool success = Camera.begin(cfg);
     if (!success) {
-        Serial.println("[ERROR] Camera initialization failed!");
-        Serial.println("Possible causes:");
-        Serial.println("1. Camera hardware issue");
-        Serial.println("2. Power supply issue");
-        Serial.println("3. PSRAM issue");
+        serialPrintWithDelay("[ERROR] Camera initialization failed!");
+        serialPrintWithDelay("Possible causes:");
+        serialPrintWithDelay("1. Camera hardware issue");
+        serialPrintWithDelay("2. Power supply issue");
+        serialPrintWithDelay("3. PSRAM issue");
         return false;
     }
     
@@ -158,47 +166,46 @@ bool initCamera() {
         s->set_raw_gma(s, 1);                    // Enable auto gamma correction
         s->set_lenc(s, 1);                       // Enable lens correction
         
-        Serial.println("\n[INFO] Camera settings applied:");
-        Serial.printf("Resolution: QVGA (320x240)\n");
-        Serial.printf("Quality: 10\n");
-        Serial.printf("Free PSRAM: %d bytes\n", ESP.getFreePsram());
+        serialPrintWithDelay("\n[INFO] Camera settings applied:");
+        serialPrintWithDelay(String("Resolution: QVGA (320x240)\n"));
+        serialPrintWithDelay(String("Quality: 10\n"));
+        serialPrintWithDelay(String("Free PSRAM: ") + String(ESP.getFreePsram()) + String(" bytes\n"));
     } else {
-        Serial.println("[ERROR] Failed to get sensor settings!");
+        serialPrintWithDelay("[ERROR] Failed to get sensor settings!");
         return false;
     }
     
     // Test capture with new settings
-    Serial.println("\nPerforming test capture...");
+    serialPrintWithDelay("\nPerforming test capture...");
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb) {
-        Serial.printf("[INFO] Test capture successful!\n");
-        Serial.printf("Image Size: %d bytes\n", fb->len);
-        Serial.printf("Resolution: %dx%d\n", fb->width, fb->height);
-        Serial.printf("Format: %d (0=JPEG)\n", fb->format);
+        serialPrintWithDelay("[INFO] Test capture successful!");
+        serialPrintWithDelay(String("Image Size: ") + String(fb->len) + String(" bytes\n"));
+        serialPrintWithDelay(String("Resolution: ") + String(fb->width) + String("x") + String(fb->height) + String("\n"));
+        serialPrintWithDelay(String("Format: ") + String(fb->format) + String(" (0=JPEG)\n"));
         
         // Verify image format
         if (fb->format != PIXFORMAT_JPEG) {
-            Serial.println("[ERROR] Capture format is not JPEG!");
+            serialPrintWithDelay("[ERROR] Capture format is not JPEG!");
             esp_camera_fb_return(fb);
             return false;
         }
         
         // Verify resolution
         if (fb->width != 320 || fb->height != 240) {
-            Serial.printf("[ERROR] Incorrect resolution: %dx%d (expected 320x240)\n", 
-                        fb->width, fb->height);
+            serialPrintWithDelay(String("[ERROR] Incorrect resolution: ") + String(fb->width) + String("x") + String(fb->height) + String(" (expected 320x240)\n"));
             esp_camera_fb_return(fb);
             return false;
         }
         
         esp_camera_fb_return(fb);
     } else {
-        Serial.println("[ERROR] Test capture failed!");
+        serialPrintWithDelay("[ERROR] Test capture failed!");
         return false;
     }
     
-    Serial.println("[SUCCESS] Camera initialization complete!");
-    Serial.println("======================================\n");
+    serialPrintWithDelay("[SUCCESS] Camera initialization complete!");
+    serialPrintWithDelay("======================================\n");
     return true;
 }
 
@@ -288,9 +295,9 @@ void triggerAlarm()
 {
   // Trigger the alarm (e.g., sound buzzer, flash LED)
   digitalWrite(Alarm_Pin, HIGH);
-  Serial.println("Alarm has been sounded.");
+  serialPrintWithDelay("Alarm has been sounded.");
   digitalWrite(LEDStrip_Pin, HIGH);
-  Serial.println("Lights turned on!");
+  serialPrintWithDelay("Lights turned on!");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -337,7 +344,7 @@ void handleCapture() {
     
     // Clean up allocated memory and log success.
     esp_camera_fb_return(fb);
-    Serial.printf("Sent image: %d bytes\n", fb->len);
+    serialPrintWithDelay("Sent image: " + String(fb->len) + " bytes");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -349,7 +356,7 @@ void handleCapture() {
 void notifyGadget() {
     // Ensure Wi-Fi is connected.
     if (WiFi.status() != WL_CONNECTED) {
-        serialPrintWithFlush("[ERROR] Wi-Fi Disconnected! Cannot send notification.");
+        serialPrintWithDelay("[ERROR] Wi-Fi Disconnected! Cannot send notification.");
         return;
     }
 
@@ -361,13 +368,13 @@ void notifyGadget() {
     String url = "http://" + String(GADGET_IP) + "/person_detected";
     
     // Log URLs.
-    serialPrintWithFlush("\n--- Sending Notification to Gadget ---");
-    serialPrintWithFlush("Camera URL: " + cameraUrl);
-    serialPrintWithFlush("Gadget URL: " + url);
+    serialPrintWithDelay("\n--- Sending Notification to Gadget ---");
+    serialPrintWithDelay("Camera URL: " + cameraUrl);
+    serialPrintWithDelay("Gadget URL: " + url);
     
     // Attempt to begin HTTP connection.
     if (!http.begin(url)) {
-        serialPrintWithFlush("[ERROR] Failed to begin HTTP connection");
+        serialPrintWithDelay("[ERROR] Failed to begin HTTP connection");
         return;
     }
     
@@ -377,40 +384,35 @@ void notifyGadget() {
     // Create JSON with camera information and timestamp.
     String timestamp = "2025-01-20T12:34:56Z";  // In real implementation, get actual timestamp
     String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\",\"timestamp\":\"" + timestamp + "\"}";
-    serialPrintWithFlush("Sending message: " + message);
+    serialPrintWithDelay("Sending message: " + message);
     
     // Increase timeout to allow network recovery.
     http.setTimeout(10000);  // 10 seconds
     
     // Send message.
     int httpCode = http.POST(message);
-    serialPrintWithFlush("HTTP Response code: " + String(httpCode));
+    serialPrintWithDelay("HTTP Response code: " + String(httpCode));
     
     // Case for successful notification.
     if (httpCode == HTTP_CODE_OK) {
         String response = http.getString();
-        serialPrintWithFlush("Response received, length: " + String(response.length()) + " bytes");
+        serialPrintWithDelay("Response received, length: " + String(response.length()) + " bytes");
         
         // Print response in chunks
-        const int chunkSize = 64;
-        for (size_t i = 0; i < response.length(); i += chunkSize) {
-            String chunk = response.substring(i, min(i + chunkSize, response.length()));
-            serialPrintWithFlush(chunk, false);
-        }
-        serialPrintWithFlush("");  // Final newline
-        serialPrintWithFlush("Notification sent successfully");
+        printChunked(response);
+        serialPrintWithDelay("Notification sent successfully");
     } else {
         // Case for failed notification.
-        serialPrintWithFlush("[ERROR] Failed to send notification, HTTP error: " + String(httpCode));
+        serialPrintWithDelay("[ERROR] Failed to send notification, HTTP error: " + String(httpCode));
         if (httpCode > 0) {
             String response = http.getString();
-            serialPrintWithFlush("Error response: " + response);
+            serialPrintWithDelay("Error response: " + response);
         }
     }
     
     // End HTTP connection.
     http.end();
-    serialPrintWithFlush("--- Notification Process Completed ---");
+    serialPrintWithDelay("--- Notification Process Completed ---");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -419,16 +421,16 @@ void notifyGadget() {
 
 void handleTriggerAlarm() {
     // Print detailed request information
-    Serial.println("\n========== TRIGGER ALARM REQUEST ==========");
-    Serial.println("Time: " + String(millis()));
-    Serial.println("Client IP: " + server.client().remoteIP().toString());
-    Serial.println("HTTP Method: " + server.method());
-    Serial.println("URI: " + server.uri());
+    serialPrintWithDelay("\n========== TRIGGER ALARM REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
     
     // Print request headers
-    Serial.println("\nRequest Headers:");
+    serialPrintWithDelay("\nRequest Headers:");
     for (int i = 0; i < server.headers(); i++) {
-        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
     }
     
     // Activate alarm
@@ -439,8 +441,8 @@ void handleTriggerAlarm() {
     // Send detailed response
     String response = "{\"status\":\"alarm_triggered\",\"timestamp\":\"" + String(millis()) + "\"}";
     server.send(200, "application/json", response);
-    Serial.println("\nResponse sent: " + response);
-    Serial.println("=========================================\n");
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -449,16 +451,16 @@ void handleTriggerAlarm() {
 
 void handleTurnOffAlarm() {
     // Print detailed request information
-    Serial.println("\n========== TURN OFF ALARM REQUEST ==========");
-    Serial.println("Time: " + String(millis()));
-    Serial.println("Client IP: " + server.client().remoteIP().toString());
-    Serial.println("HTTP Method: " + server.method());
-    Serial.println("URI: " + server.uri());
+    serialPrintWithDelay("\n========== TURN OFF ALARM REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
     
     // Print request headers
-    Serial.println("\nRequest Headers:");
+    serialPrintWithDelay("\nRequest Headers:");
     for (int i = 0; i < server.headers(); i++) {
-        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
     }
     
     // Deactivate alarm
@@ -469,8 +471,8 @@ void handleTurnOffAlarm() {
     // Send detailed response
     String response = "{\"status\":\"alarm_deactivated\",\"timestamp\":\"" + String(millis()) + "\"}";
     server.send(200, "application/json", response);
-    Serial.println("\nResponse sent: " + response);
-    Serial.println("=========================================\n");
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -479,16 +481,16 @@ void handleTurnOffAlarm() {
 
 void handleTurnOnLights() {
     // Print detailed request information
-    Serial.println("\n========== TURN ON LIGHTS REQUEST ==========");
-    Serial.println("Time: " + String(millis()));
-    Serial.println("Client IP: " + server.client().remoteIP().toString());
-    Serial.println("HTTP Method: " + server.method());
-    Serial.println("URI: " + server.uri());
+    serialPrintWithDelay("\n========== TURN ON LIGHTS REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
     
     // Print request headers
-    Serial.println("\nRequest Headers:");
+    serialPrintWithDelay("\nRequest Headers:");
     for (int i = 0; i < server.headers(); i++) {
-        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
     }
     
     // Activate lights
@@ -499,8 +501,8 @@ void handleTurnOnLights() {
     // Send detailed response
     String response = "{\"status\":\"lights_activated\",\"timestamp\":\"" + String(millis()) + "\"}";
     server.send(200, "application/json", response);
-    Serial.println("\nResponse sent: " + response);
-    Serial.println("=========================================\n");
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -509,16 +511,16 @@ void handleTurnOnLights() {
 
 void handleTurnOffLights() {
     // Print detailed request information
-    Serial.println("\n========== TURN OFF LIGHTS REQUEST ==========");
-    Serial.println("Time: " + String(millis()));
-    Serial.println("Client IP: " + server.client().remoteIP().toString());
-    Serial.println("HTTP Method: " + server.method());
-    Serial.println("URI: " + server.uri());
+    serialPrintWithDelay("\n========== TURN OFF LIGHTS REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
     
     // Print request headers
-    Serial.println("\nRequest Headers:");
+    serialPrintWithDelay("\nRequest Headers:");
     for (int i = 0; i < server.headers(); i++) {
-        Serial.printf("%s: %s\n", server.headerName(i).c_str(), server.header(i).c_str());
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
     }
     
     // Deactivate lights
@@ -529,8 +531,8 @@ void handleTurnOffLights() {
     // Send detailed response
     String response = "{\"status\":\"lights_deactivated\",\"timestamp\":\"" + String(millis()) + "\"}";
     server.send(200, "application/json", response);
-    Serial.println("\nResponse sent: " + response);
-    Serial.println("=========================================\n");
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -538,9 +540,9 @@ void handleTurnOffLights() {
 // -----------------------------------------------------------------------------------------
 
 void handleHeartbeat() {
-    Serial.println("\n========== HEARTBEAT REQUEST ==========");
-    Serial.println("Time: " + String(millis()));
-    Serial.println("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("\n========== HEARTBEAT REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
     
     // Reset missed heart beats counter
     missedHeartbeats = 0;
@@ -556,8 +558,8 @@ void handleHeartbeat() {
     
     // Send response
     server.send(200, "application/json", response);
-    Serial.println("Heartbeat response sent");
-    Serial.println("=========================================\n");
+    serialPrintWithDelay("Heartbeat response sent");
+    serialPrintWithDelay("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -568,57 +570,56 @@ void handleHeartbeat() {
 // Called Upon Power Up or Reset.
 void setup()
 {
-    // Initialize Serial Communication with a larger buffer
-    Serial.begin(115200);
-    delay(100); // Give serial time to initialize
-    Serial.println("\n--------------------------------");
-    Serial.println("Starting ESP32-CAM...");
-    Serial.println("--------------------------------");
+    // Initialize Serial Communication with a larger buffer and lower baud rate
+    Serial.begin(57600);  // Reduced baud rate for better stability
+    delay(100);  // Give serial time to initialize
+    serialPrintWithDelay("\n--------------------------------");
+    serialPrintWithDelay("Starting ESP32-CAM...");
+    serialPrintWithDelay("--------------------------------");
 
-    // Initialize camera with retries.
+    // Initialize camera with retries
     bool cameraInitialized = false;
     for (int attempt = 0; attempt < 3 && !cameraInitialized; attempt++) {
         if (attempt > 0) {
-            Serial.printf("\nRetrying camera initialization (attempt %d/3)...\n", attempt + 1);
+            serialPrintWithDelay("\nRetrying camera initialization (attempt " + String(attempt + 1) + "/3)...");
             delay(1000);
         }
         cameraInitialized = initCamera();
     }
 
-    // Case for failed camera initialization.
     if (!cameraInitialized) {
-        Serial.println("\n[FATAL] Failed to initialize camera after multiple attempts!");
-        Serial.println("Please check power supply and camera hardware.");
-        Serial.println("Restarting in 5 seconds...");
+        serialPrintWithDelay("\n[FATAL] Failed to initialize camera after multiple attempts!");
+        serialPrintWithDelay("Please check power supply and camera hardware.");
+        serialPrintWithDelay("Restarting in 5 seconds...");
         delay(5000);
         ESP.restart();
     }
 
-    // Wi-Fi Configuration.
+    // Wi-Fi Configuration
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-    // Wait for Wi-Fi Connection.
+    // Wait for Wi-Fi Connection
     int attempts = 0;
-    Serial.print("\nConnecting to WiFi");
+    serialPrintWithDelay("\nConnecting to WiFi", false);
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {  // 20-second timeout
         delay(1000);
         Serial.print(".");
+        Serial.flush();
         attempts++;
     }
+    serialPrintWithDelay("");  // New line after dots
 
-    // Case for successful Wi-Fi connection.
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWi-Fi connected successfully!");
-        Serial.print("ESP32-CAM IP Address: ");
-        Serial.println(WiFi.localIP());
+        serialPrintWithDelay("\nWi-Fi connected successfully!");
+        serialPrintWithDelay("ESP32-CAM IP Address: " + WiFi.localIP().toString());
     } else {
-        Serial.println("\n[ERROR] Wi-Fi connection failed! Restarting...");
+        serialPrintWithDelay("\n[ERROR] Wi-Fi connection failed! Restarting...");
         delay(5000);
         ESP.restart();
     }
 
-    // Set up HTTP server endpoints.
+    // Set up HTTP server endpoints with minimal logging
     server.on("/", HTTP_GET, handleRoot);
     server.on("/capture", HTTP_GET, handleCapture);
     server.on("/trigger_alarm", HTTP_GET, handleTriggerAlarm);
@@ -627,28 +628,18 @@ void setup()
     server.on("/turn_off_lights", HTTP_GET, handleTurnOffLights);
     server.on("/heartbeat", HTTP_GET, handleHeartbeat);
     
-    // Add handler for undefined endpoints
     server.onNotFound([]() {
-        Serial.println("\n========== 404 NOT FOUND ==========");
-        Serial.println("Time: " + String(millis()));
-        Serial.println("Client IP: " + server.client().remoteIP().toString());
-        Serial.println("Requested URI: " + server.uri());
-        Serial.println("HTTP Method: " + server.method());
-        server.send(404, "text/plain", "Endpoint not found");
-        Serial.println("==================================\n");
+        serialPrintWithDelay("404: " + server.uri());
     });
     
-    // Start HTTP server.
     server.begin();
-    Serial.println("HTTP server started");
+    serialPrintWithDelay("HTTP server started");
 
-    // Register with gadget after Wi-Fi connection.
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nRegistering with gadget...");
+        serialPrintWithDelay("\nRegistering with gadget...");
         registerWithGadget();
     }
 
-    // Initialize Hardware.
     initializeHardware();
 }
 
@@ -658,12 +649,12 @@ void registerWithGadget() {
     String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
     String url = "http://" + String(GADGET_IP) + "/person_detected";
     
-    serialPrintWithFlush("\n--- Starting Registration Process ---");
-    serialPrintWithFlush("Camera URL: " + cameraUrl);
-    serialPrintWithFlush("Gadget URL: " + url);
+    serialPrintWithDelay("\n--- Starting Registration Process ---");
+    serialPrintWithDelay("Camera URL: " + cameraUrl);
+    serialPrintWithDelay("Gadget URL: " + url);
     
     if (!http.begin(url)) {
-        serialPrintWithFlush("[ERROR] Failed to begin HTTP connection");
+        serialPrintWithDelay("[ERROR] Failed to begin HTTP connection");
         return;
     }
     
@@ -671,40 +662,36 @@ void registerWithGadget() {
     http.setTimeout(10000);
     
     String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
-    serialPrintWithFlush("Sending registration data...");
+    serialPrintWithDelay("Sending registration data...");
     
     int httpCode = http.POST(message);
-    serialPrintWithFlush("HTTP Response code: " + String(httpCode));
+    serialPrintWithDelay("HTTP Response code: " + String(httpCode));
     
     if (httpCode == HTTP_CODE_OK) {
         String response = http.getString();
-        serialPrintWithFlush("Registration successful!");
-        serialPrintWithFlush("Response length: " + String(response.length()) + " bytes");
+        serialPrintWithDelay("Registration successful!");
+        serialPrintWithDelay("Response length: " + String(response.length()) + " bytes");
         
         // Print response in smaller chunks with delays
         const int chunkSize = 64;  // Reduced chunk size
-        serialPrintWithFlush("Response content:");
-        for (size_t i = 0; i < response.length(); i += chunkSize) {
-            String chunk = response.substring(i, min(i + chunkSize, response.length()));
-            serialPrintWithFlush(chunk, false);  // Print without newline
-        }
-        serialPrintWithFlush("");  // Final newline
+        serialPrintWithDelay("Response content:");
+        printChunked(response);
     } else {
-        serialPrintWithFlush("[ERROR] Registration failed, code: " + String(httpCode));
+        serialPrintWithDelay("[ERROR] Registration failed, code: " + String(httpCode));
         // Try a few more times if failed
         for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
             delay(1000);
-            serialPrintWithFlush("Retry attempt " + String(i + 1) + "...");
+            serialPrintWithDelay("Retry attempt " + String(i + 1) + "...");
             httpCode = http.POST(message);
             if(httpCode == HTTP_CODE_OK) {
-                serialPrintWithFlush("Registration successful on retry!");
+                serialPrintWithDelay("Registration successful on retry!");
                 break;
             }
         }
     }
     
     http.end();
-    serialPrintWithFlush("--- Registration Process Completed ---");
+    serialPrintWithDelay("--- Registration Process Completed ---");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -712,7 +699,7 @@ void registerWithGadget() {
 // -----------------------------------------------------------------------------------------
 
 void initializeHardware() {
-    Serial.println("\n========== INITIALIZING HARDWARE ==========");
+    serialPrintWithDelay("\n========== INITIALIZING HARDWARE ==========");
     
     // Initialize input pins.
     pinMode(PassiveIR_Pin, INPUT);
@@ -732,9 +719,9 @@ void initializeHardware() {
     digitalWrite(whitePin, LOW);
     
     // Print notification.
-    Serial.println("PIR sensors initialized");
-    Serial.println("Output devices initialized");
-    Serial.println("=========================================\n");
+    serialPrintWithDelay("PIR sensors initialized");
+    serialPrintWithDelay("Output devices initialized");
+    serialPrintWithDelay("=========================================\n");
 }
 
 // -----------------------------------------------------------------------------------------
@@ -743,7 +730,7 @@ void initializeHardware() {
 
 void checkWiFiConnection() {
         if (WiFi.status() != WL_CONNECTED) {
-            Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
+            serialPrintWithDelay("[WARNING] Wi-Fi lost! Attempting to reconnect...");
         
         // Disconnect and reconnect
             WiFi.disconnect();
@@ -758,11 +745,10 @@ void checkWiFiConnection() {
             }
 
             if (WiFi.status() == WL_CONNECTED) {
-                Serial.println("\nWi-Fi reconnected successfully!");
-            Serial.print("ESP32-CAM IP Address: ");
-            Serial.println(WiFi.localIP());
+                serialPrintWithDelay("\nWi-Fi reconnected successfully!");
+            serialPrintWithDelay("ESP32-CAM IP Address: " + WiFi.localIP().toString());
             } else {
-                Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
+                serialPrintWithDelay("\n[ERROR] Failed to reconnect. Restarting...");
                 delay(5000);
                 ESP.restart();
             }
@@ -779,7 +765,7 @@ void simulatePersonDetection() {
     
     if (millis() - lastTestDetection >= TEST_INTERVAL) {
         lastTestDetection = millis();
-        Serial.println("\n[TEST] Simulating person detection...");
+        serialPrintWithDelay("\n[TEST] Simulating person detection...");
         
         // Simulate motion detection
         motionDetected = true;
@@ -787,10 +773,10 @@ void simulatePersonDetection() {
         // Capture test image
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
-            Serial.println("[TEST] Camera capture failed");
+            serialPrintWithDelay("[TEST] Camera capture failed");
         } else {
-            Serial.println("[TEST] Image captured successfully");
-            Serial.printf("[TEST] Image size: %d bytes\n", fb->len);
+            serialPrintWithDelay("[TEST] Image captured successfully");
+            serialPrintWithDelay(String("[TEST] Image size: ") + String(fb->len) + String(" bytes\n"));
             
             // Notify gadget
             notifyGadget();
@@ -798,7 +784,7 @@ void simulatePersonDetection() {
             // Return the frame buffer
             esp_camera_fb_return(fb);
             
-            Serial.println("[TEST] Test detection notification sent");
+            serialPrintWithDelay("[TEST] Test detection notification sent");
         }
         
         // Reset motion detection after a short delay
@@ -904,7 +890,7 @@ void loop()
         missedHeartbeats++;
         
         if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
-            Serial.println("[WARNING] Multiple heartbeats missed. Checking WiFi connection...");
+            serialPrintWithDelay("[WARNING] Multiple heartbeats missed. Checking WiFi connection...");
             checkWiFiConnection();
         }
     }
