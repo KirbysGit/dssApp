@@ -29,6 +29,10 @@
 #include <esp_heap_caps.h>
 #include "base64.h"
 
+// Image Processing Imports.
+#include "edge-impulse-sdk/dsp/image/image.hpp"
+#include <Person_detector_x1_inferencing.h>
+
 // Photo capture triggered by GPIO pin rising/falling.
 // #define TRIGGER_MODE  // Comment out to enable test mode simulation
 
@@ -63,13 +67,13 @@ WebServer server(80);
 // ---------
 
 // Passive IR sensor pin.
-const byte PassiveIR_Pin = GPIO_NUM_12
+const byte PassiveIR_Pin = GPIO_NUM_12;
 
 // Active IR sensor pin #1.
 const byte ActiveIR1_Pin = GPIO_NUM_14;
 
 // Active IR sensor pin #2.
-const byte ActiveIR2_Pin = GPIO_NUM_13;
+const byte ActiveIR2_Pin = GPIO_NUM_4;
 
 // White LED Strip.
 const byte LEDStrip_Pin = GPIO_NUM_15;
@@ -105,7 +109,10 @@ const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 secon
 const int MAX_MISSED_HEARTBEATS = 5;
 int missedHeartbeats = 0;
 
-// Helper functions.
+// ----------------------------------------------------------------------------------------
+// Helper Functions.
+// ----------------------------------------------------------------------------------------
+
 void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) {
     if (newLine) {
         Serial.println(message);
@@ -123,10 +130,6 @@ void printChunked(const String& message, int chunkSize = 32) {
     }
     serialPrintWithDelay("", true, 10);  // Final newline
 }
-
-// ----
-// CODE
-// ----
 
 // -----------------------------------------------------------------------------------------
 // Camera Initialization
@@ -801,55 +804,119 @@ void simulatePersonDetection() {
 // - Comment out simulatePersonDetection() to test hardware. 
 
 // -----------------------------------------------------------------------------------------
+// Edge Impulse Image Processing.
+// -----------------------------------------------------------------------------------------
+
+static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
+{
+    // we already have a RGB888 buffer, so recalculate offset into pixel index
+    size_t pixel_ix = offset * 3;
+    size_t pixels_left = length;
+    size_t out_ptr_ix = 0;
+
+    while (pixels_left != 0) {
+        // Swap BGR to RGB here
+        // due to https://github.com/espressif/esp32-camera/issues/379
+        out_ptr[out_ptr_ix] = (snapshot_buf[pixel_ix + 2] << 16) + (snapshot_buf[pixel_ix + 1] << 8) + snapshot_buf[pixel_ix];
+
+        // go to the next pixel
+        out_ptr_ix++;
+        pixel_ix+=3;
+        pixels_left--;
+    }
+    // and done!
+    return 0;
+}
+// -----------------------------------------------------------------------------------------
+// Process Image with Edge Impulse Model.
+// -----------------------------------------------------------------------------------------
+
+bool processImage() {
+
+    Serial.println("[INFO] Capturing Image for Edge Impulse Processing...");
+
+    // Capture Image.
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        Serial.println("[ERROR] Camera capture failed");
+        return false;
+    }
+
+    // Allocate Buffer for Processing.
+    uint8_t * snapshot_buf = (uint8_t *)malloc(EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3);
+    if (!snapshot_buf) {
+        Serial.println("[ERROR] Failed to allocate buffer for image processing");
+        esp_camera_fb_return(fb);
+        return false;
+    }  
+
+    // Convert Image to RGB888.
+    bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
+    esp_camera_fb_return(fb);
+
+    if (!converted) {
+        Serial.println("[ERROR] Image conversion failed!");
+        free(snapshot_buf);
+        return false;
+    }
+
+    // Initialize Signal.
+    ei::signal_t signal;
+    signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
+    signal.get_data = &ei_camera_get_data;
+
+    // Run Classifier.
+    ei_impulse_result_t result = { 0 };
+    EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
+
+    // Check for Errors.
+    if(err != EI_IMPULSE_OK) {
+        Serial.println("[ERROR] Failed to run classifier");
+        free(snapshot_buf);
+        return false;
+    }
+
+    // Check for Person Detection.
+    bool personDetected = false;
+    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
+        if (strcmp(ei_classifier_inferencing_categories[i], "person") == 0 && result.classification[i].value > 0.7) {
+            personDetected = true;
+        }
+    }
+
+    // Free Buffer.
+    free(snapshot_buf);
+    esp_camera_fb_return(fb);
+
+    return personDetected;
+}
+
 // Check Motion Sensor.
 // -----------------------------------------------------------------------------------------
 
 void checkMotionSensor() {
     // Check motion sensor at regular intervals.
 
-    /*
     if (millis() - lastMotionCheck >= MOTION_CHECK_INTERVAL) {
         lastMotionCheck = millis();
         
         // Read PIR sensor.
         int pirValue = digitalRead(PassiveIR_Pin);
         if (pirValue == HIGH) {
-            Serial.println("\n[MOTION] PIR sensor detected motion");
-            motionDetected = true;
+            Serial.println("\n[MOTION] PIR sensor detected motion.");
             
-            // Capture image.
-            camera_fb_t *fb = esp_camera_fb_get();
-            if (!fb) {
-                Serial.println("[ERROR] Camera capture failed");
+            // Capture Image.
+            if (processImage()) {
+                Serial.println("[DETECTION] Person detected in image!!!!");
+                notifyGadget();
             } else {
-                Serial.println("Image captured successfully");
-                Serial.printf("Image size: %d bytes\n", fb->len);
-                
-                // Process image for person detection.
-                if (processImage(fb)) {
-                    Serial.println("[DETECTION] Person detected in image");
-                    
-                    // Notify gadget.
-                    notifyGadget();
-                    
-                    // Turn on lights if it's dark (you can add light sensor logic here).
-                    if (!lightsActive) {
-                        digitalWrite(LEDStrip_Pin, HIGH);
-                        digitalWrite(whitePin, HIGH);
-                        lightsActive = true;
-                    }
-                } else {
-                    Serial.println("No person detected in image");
-                }
-                
-                // Return the frame buffer
-                esp_camera_fb_return(fb);
+                Serial.println("[INFO] No person detected in image.");
             }
         } else {
-            motionDetected = false;
+            Serial.println("[INFO] No motion detected.");
         }
+            
     }
-    */
 }
 
 // -----------------------------------------------------------------------------------------
