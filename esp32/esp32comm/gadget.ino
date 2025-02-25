@@ -55,10 +55,20 @@ WebServer server(80);
 // ---------
 
 // GPIO Pins --> Active Low.
-// const byte TRIGGER_ALARM_PIN = GPIO_NUM_24;
-// const byte TURN_ON_LIGHTS_PIN = GPIO_NUM_25;
-// const byte TURN_OFF_ALARM_PIN = GPIO_NUM_26;
-// const byte TURN_OFF_GADGET_PIN = GPIO_NUM_27;
+
+// Trigger Alarm.
+const byte TRIGGER_ALARM_PIN = GPIO_NUM_47;
+
+// Turn On Lights.
+const byte TURN_ON_LIGHTS_PIN = GPIO_NUM_48;
+
+// Turn Off Alarm.
+const byte TURN_OFF_ALARM_PIN = GPIO_NUM_25;
+
+// Turn Off Gadget.
+const byte TURN_OFF_GADGET_PIN = GPIO_NUM_0;
+
+// LED.
 const int LED = 21;
 
 // Switch debounce variables.
@@ -151,7 +161,7 @@ void handlePersonDetected() {
       return;
   }
 
-  // Update or add camera to our list
+  // Update or Add Camera to our List.
   bool found = false;
   for (int i = 0; i < numCameras; i++) {
       if (cameras[i].name == nodeName) {
@@ -163,7 +173,7 @@ void handlePersonDetected() {
       }
   }
 
-  // Add new camera to our list.
+  // Add New Camera to our List.
   if (!found && numCameras < MAX_CAMERAS) {
       cameras[numCameras].url = cameraUrl;
       cameras[numCameras].name = nodeName;
@@ -173,10 +183,10 @@ void handlePersonDetected() {
                   nodeName, cameraUrl, numCameras);
   }
 
-  // Set person detected flag
+  // Set Person Detected Flag.
   personDetected = true;
     
-  // Create response JSON with camera information
+  // Create Response JSON with Camera Information.
   String response = "{";
   response += "\"status\":\"success\",";
   response += "\"message\":\"Detection recorded\",";
@@ -185,10 +195,10 @@ void handlePersonDetected() {
   response += "\"timestamp\":\"" + String(timestamp ? timestamp : "") + "\"";
   response += "}";
   
-  // Send response.
+  // Send Response.
   server.send(200, "application/json", response);
     
-  // Blink LED to indicate detection.
+  // Blink LED to Indicate Detection.
   digitalWrite(LED, HIGH);
   delay(100);
   digitalWrite(LED, LOW);
@@ -207,7 +217,7 @@ void handlePersonStatus() {
   response += "\"personDetected\":" + String(personDetected ? "true" : "false") + ",";
   response += "\"cameras\":[";
     
-  // Iterate through cameras and add to response.
+  // Iterate through Cameras and Add to Response.
   for (int i = 0; i < numCameras; i++) {
       if (i > 0) response += ",";
       response += "{";
@@ -232,6 +242,7 @@ void handlePersonStatus() {
 // -----------------------------------------------------------------------------------------
 
 void handlePing() {
+    // Print Ping Request.
     Serial.println("\n========== PING REQUEST ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Client IP: " + server.client().remoteIP().toString());
@@ -243,13 +254,111 @@ void handlePing() {
 }
 
 // -----------------------------------------------------------------------------------------
+// Notify Node.
+// -----------------------------------------------------------------------------------------
+
+// Controller Function for Endpoints.
+
+void notifyNode(String endpoint) {
+    // Check if WiFi is connected.
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[ERROR] Cannot notify nodes: WiFi not connected");
+        return;
+    }
+
+    // Iterate through All Connected Cameras.
+    for (int i = 0; i < numCameras; i++) {
+        // Create HTTP client.
+        HTTPClient http;
+        
+        // Extract Base URL from Camera URL and Append the Endpoint.
+        String nodeUrl = cameras[i].url;
+
+        // Remove "/capture" from the end if it exists.
+        nodeUrl = nodeUrl.substring(0, nodeUrl.lastIndexOf('/'));
+        String url = nodeUrl + endpoint;
+
+        // Print notification.
+        Serial.println("Sending request to node " + cameras[i].name + ": " + url);
+        
+        // Check if HTTP Connection is Successful.
+        if (!http.begin(url)) {
+            Serial.println("[ERROR] Failed to begin HTTP connection to " + cameras[i].name);
+            continue;
+        }
+        
+        // Set Timeout.
+        http.setTimeout(5000);
+
+        // Send GET Request.
+        int httpCode = http.GET();
+        
+        // Check if Request was Successful.
+        if (httpCode == HTTP_CODE_OK) {
+            String response = http.getString();
+            Serial.println("Node " + cameras[i].name + " response: " + response);
+            Serial.println("Command acknowledged successfully");
+        } else {
+            Serial.printf("[ERROR] Node %s did not acknowledge command. Error code: %d\n", 
+                        cameras[i].name.c_str(), httpCode);
+        }
+
+        http.end();
+    }
+}
+
+//// -----------------------------------------------------------------------------------------
+// Test Gadget Switches.
+// -----------------------------------------------------------------------------------------
+
+// Test Trigger Alarm from Gadget from Mobile App.
+void handleTestTriggerAlarm() {
+    Serial.println("[TEST] Trigger Alarm Command Received");
+    notifyNode("/trigger_alarm");
+    server.send(200, "text/plain", "Test trigger alarm command executed");
+}
+
+// Test Turn Off Alarm from Gadget from Mobile App.
+void handleTestTurnOffAlarm() {
+    Serial.println("[TEST] Turn Off Alarm Command Received");
+    notifyNode("/turn_off_alarm");
+    server.send(200, "text/plain", "Test turn off alarm command executed");
+}
+
+// Test Turn On Lights from Gadget from Mobile App.
+void handleTestTurnOnLights() {
+    Serial.println("[TEST] Turn On Lights Command Received");
+    notifyNode("/turn_on_lights");
+    server.send(200, "text/plain", "Test turn on lights command executed");
+}
+
+// Test Turn Off Lights from Gadget from Mobile App.
+void handleTestTurnOffLights() {
+    Serial.println("[TEST] Turn Off Lights Command Received");
+    notifyNode("/turn_off_lights");
+    server.send(200, "text/plain", "Test turn off lights command executed");
+}
+
+// Test Restart Gadget from Gadget from Mobile App.
+void handleTestRestartGadget() {
+    Serial.println("[TEST] Restart Gadget Command Received");
+    server.send(200, "text/plain", "Restarting gadget...");
+    delay(1000);
+    ESP.restart();
+}
+
+// *********** HARD WARE TESTING ***********
+// - Uncomment code below in checkSwitches() to test hardware.
+// - Uncomment Initialize Pins in setup() to test hardware.
+
+// -----------------------------------------------------------------------------------------
 // Switch Monitoring
 // -----------------------------------------------------------------------------------------
 
 void checkSwitches() {
-    // Get current time.
+    // Get Current Time.
     unsigned long currentMillis = millis();
-    /*
+    
     // Debounce switch presses.
     if (currentMillis - lastSwitchPressTime > DEBOUNCE_DELAY) {
 
@@ -304,98 +413,6 @@ void checkSwitches() {
             ESP.restart();
         }
     }
-  */
-}
-
-// -----------------------------------------------------------------------------------------
-// Notify Node.
-// -----------------------------------------------------------------------------------------
-
-void notifyNode(String endpoint) {
-    // Check if WiFi is connected.
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("[ERROR] Cannot notify nodes: WiFi not connected");
-        return;
-    }
-
-    // Iterate through all connected cameras
-    for (int i = 0; i < numCameras; i++) {
-        // Create HTTP client
-        HTTPClient http;
-        
-        // Extract base URL from camera URL and append the endpoint
-        String nodeUrl = cameras[i].url;
-        // Remove "/capture" from the end if it exists
-        nodeUrl = nodeUrl.substring(0, nodeUrl.lastIndexOf('/'));
-        String url = nodeUrl + endpoint;
-
-        // Print notification
-        Serial.println("Sending request to node " + cameras[i].name + ": " + url);
-        
-        // Check if HTTP connection is successful
-        if (!http.begin(url)) {
-            Serial.println("[ERROR] Failed to begin HTTP connection to " + cameras[i].name);
-            continue;
-        }
-        
-        // Set timeout
-        http.setTimeout(5000);
-
-        // Send GET request
-        int httpCode = http.GET();
-        
-        // Check if request was successful
-        if (httpCode == HTTP_CODE_OK) {
-            String response = http.getString();
-            Serial.println("Node " + cameras[i].name + " response: " + response);
-            Serial.println("Command acknowledged successfully");
-        } else {
-            Serial.printf("[ERROR] Node %s did not acknowledge command. Error code: %d\n", 
-                        cameras[i].name.c_str(), httpCode);
-        }
-
-        http.end();
-    }
-}
-
-//// -----------------------------------------------------------------------------------------
-// Test Gadget Switches.
-// -----------------------------------------------------------------------------------------
-
-// Test Trigger Alarm from Gadget from Mobile App.
-void handleTestTriggerAlarm() {
-    Serial.println("[TEST] Trigger Alarm Command Received");
-    notifyNode("/trigger_alarm");
-    server.send(200, "text/plain", "Test trigger alarm command executed");
-}
-
-// Test Turn Off Alarm from Gadget from Mobile App.
-void handleTestTurnOffAlarm() {
-    Serial.println("[TEST] Turn Off Alarm Command Received");
-    notifyNode("/turn_off_alarm");
-    server.send(200, "text/plain", "Test turn off alarm command executed");
-}
-
-// Test Turn On Lights from Gadget from Mobile App.
-void handleTestTurnOnLights() {
-    Serial.println("[TEST] Turn On Lights Command Received");
-    notifyNode("/turn_on_lights");
-    server.send(200, "text/plain", "Test turn on lights command executed");
-}
-
-// Test Turn Off Lights from Gadget from Mobile App.
-void handleTestTurnOffLights() {
-    Serial.println("[TEST] Turn Off Lights Command Received");
-    notifyNode("/turn_off_lights");
-    server.send(200, "text/plain", "Test turn off lights command executed");
-}
-
-// Test Restart Gadget from Gadget from Mobile App.
-void handleTestRestartGadget() {
-    Serial.println("[TEST] Restart Gadget Command Received");
-    server.send(200, "text/plain", "Restarting gadget...");
-    delay(1000);
-    ESP.restart();
 }
 
 // -----------------------------------------------------------------------------------------
@@ -406,12 +423,10 @@ void setup()
 {
   // Initialize pins.
   pinMode(LED, OUTPUT);
-  /*
   pinMode(TRIGGER_ALARM_PIN, INPUT_PULLUP);
   pinMode(TURN_ON_LIGHTS_PIN, INPUT_PULLUP);
   pinMode(TURN_OFF_ALARM_PIN, INPUT_PULLUP);
   pinMode(TURN_OFF_GADGET_PIN, INPUT_PULLUP);
-  */
   digitalWrite(LED, LOW);
 
   // Start serial communication.
