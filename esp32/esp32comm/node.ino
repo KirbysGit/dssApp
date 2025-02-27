@@ -812,30 +812,42 @@ void simulatePersonDetection() {
 // -----------------------------------------------------------------------------------------
 static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
 {
-    if (snapshot_buf == nullptr) {
-        Serial.println("[ERROR] snapshot_buf is NULL!");
-        return -1;  // Return error code
+    // Add bounds checking and debug info
+    size_t pixel_ix = offset * 3;
+    size_t buf_size = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3;
+    
+    Serial.printf("[DEBUG] get_data called - offset: %d, length: %d\n", offset, length);
+    
+    // Validate snapshot buffer
+    if (!snapshot_buf) {
+        Serial.println("[ERROR] snapshot_buf is NULL in get_data");
+        return -1;
     }
 
-    // Calculate pixel index
-    size_t pixel_ix = offset * 3;
-    size_t pixels_left = length;
-    size_t out_ptr_ix = 0;
+    // Ensure we don't exceed buffer bounds
+    if (offset + length > (buf_size / 3)) {
+        Serial.println("[ERROR] Requested data exceeds buffer bounds");
+        return -1;
+    }
 
-    while (pixels_left != 0) {
-        // Prevent out-of-bounds access
-        if (pixel_ix + 2 >= EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3) {
-            Serial.println("[ERROR] Pixel index out of bounds!");
-            return -1;  // Return error
+    // Convert RGB888 to normalized float values
+    for (size_t i = 0; i < length; i++) {
+        if (pixel_ix + 2 >= buf_size) {
+            Serial.println("[ERROR] Pixel index exceeds buffer size");
+            return -1;
         }
 
-        // Swap BGR to RGB
-        out_ptr[out_ptr_ix] = (snapshot_buf[pixel_ix + 2] << 16) + (snapshot_buf[pixel_ix + 1] << 8) + snapshot_buf[pixel_ix];
-
-        out_ptr_ix++;
+        // Convert RGB to normalized float (0.0-1.0)
+        float r = static_cast<float>(snapshot_buf[pixel_ix]) / 255.0f;
+        float g = static_cast<float>(snapshot_buf[pixel_ix + 1]) / 255.0f;
+        float b = static_cast<float>(snapshot_buf[pixel_ix + 2]) / 255.0f;
+        
+        // Store normalized RGB value
+        out_ptr[i] = (r + g + b) / 3.0f;
+        
         pixel_ix += 3;
-        pixels_left--;
     }
+
     return 0;
 }
 
@@ -844,9 +856,6 @@ static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
 // -----------------------------------------------------------------------------------------
 
 bool processImage() {
-
-    Serial.println("[INFO] Capturing Image for Edge Impulse Processing...");
-
     // Capture Image.
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
@@ -867,14 +876,19 @@ bool processImage() {
         snapshot_buf = nullptr;
     }
 
+    // Calculate buffer size for RGB888 format (3 bytes per pixel)
+    size_t buf_size = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3;
+    
     // Allocate Buffer for Processing.
-    snapshot_buf = (uint8_t *)malloc(320 * 240 * 3);
+    snapshot_buf = (uint8_t *)malloc(buf_size);
     if (!snapshot_buf) {
         Serial.println("[ERROR] Failed to allocate buffer for image processing");
         esp_camera_fb_return(fb);
         return false;
     }  
 
+    // Debug print buffer size
+    Serial.printf("[DEBUG] Allocated buffer size: %d bytes\n", buf_size);
 
     // Convert Image to RGB888.
     bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
@@ -883,35 +897,50 @@ bool processImage() {
     if (!converted) {
         Serial.println("[ERROR] Image conversion failed!");
         free(snapshot_buf);
+        snapshot_buf = nullptr;
         return false;
     }
 
-    // Initialize Signal.
+    // Initialize Signal with correct total length for RGB data
     ei::signal_t signal;
-    signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
+    signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3; // Multiply by 3 for RGB
     signal.get_data = &ei_camera_get_data;
+
+    // Debug print signal length
+    Serial.printf("[DEBUG] Signal total length: %d\n", signal.total_length);
 
     // Run Classifier.
     ei_impulse_result_t result = { 0 };
+    
+    // Add debug prints before and after classifier
+    Serial.println("[DEBUG] Running classifier...");
     EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
+    Serial.println("[DEBUG] Classifier finished");
 
     // Check for Errors.
     if(err != EI_IMPULSE_OK) {
-        Serial.println("[ERROR] Failed to run classifier");
+        Serial.printf("[ERROR] Failed to run classifier, error code: %d\n", err);
         free(snapshot_buf);
+        snapshot_buf = nullptr;
         return false;
     }
 
-    // Check for Person Detection.
+    // Check for Person Detection with debug info
     bool personDetected = false;
     for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
-        if (strcmp(ei_classifier_inferencing_categories[i], "person") == 0 && result.classification[i].value > 0.7) {
+        float confidence = result.classification[i].value;
+        Serial.printf("[DEBUG] Class: %s, Confidence: %.2f\n", 
+                     ei_classifier_inferencing_categories[i], 
+                     confidence);
+        
+        if (strcmp(ei_classifier_inferencing_categories[i], "person") == 0 && confidence > 0.7) {
             personDetected = true;
         }
     }
 
-    // Free Buffer.
+    // Free Buffer only after we're done with all processing
     free(snapshot_buf);
+    snapshot_buf = nullptr;
 
     return personDetected;
 }
