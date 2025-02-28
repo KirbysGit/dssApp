@@ -8,7 +8,6 @@
 #include <WiFi.h>                               // Manages WiFi connectivity.
 #include <HTTPClient.h>                         // Enables HTTP Communication.
 #include <WebServer.h>                          // Manages Web Server.
-#include <esp32cam.h>                           // Manages Camera Initialization.
 #include <esp_heap_caps.h>                      // Manages Heap Memory.
 #include "base64.h"                             // Manages Base64 Encoding.
 
@@ -73,9 +72,6 @@ const byte PassiveIR_Pin = GPIO_NUM_12;
 
 // Active IR sensor pin #1.
 const byte ActiveIR1_Pin = GPIO_NUM_14;
-
-// Active IR sensor pin #2.
-const byte ActiveIR2_Pin = GPIO_NUM_13;
 
 // White LED Strip.
 const byte LEDStrip_Pin = GPIO_NUM_15;
@@ -879,7 +875,7 @@ bool processImage() {
     if (snapshot_buf == nullptr) 
     {
         ei_printf("ERR: Failed to allocate snapshot buffer!\n");
-        return;
+        return false;
     }
 
     ei::signal_t signal;
@@ -891,7 +887,7 @@ bool processImage() {
     {
         ei_printf("Failed to capture image\r\n");
         free(snapshot_buf);
-        return;
+        return false;
     }
 
     // Run the classifier
@@ -901,7 +897,7 @@ bool processImage() {
     {
         ei_printf("ERR: Failed to run classifier (%d)\n", err);
         free(snapshot_buf);
-        return;
+        return false;
     }
 
     // print the predictions
