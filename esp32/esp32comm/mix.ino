@@ -956,7 +956,7 @@ void checkMotionSensor() {
 
     if (millis() - lastMotionCheck >= MOTION_CHECK_INTERVAL) {
         lastMotionCheck = millis();
-        
+        /*
         // Read PIR sensor.
         int pirValue = digitalRead(PassiveIR_Pin);
         if (pirValue == HIGH) {
@@ -991,6 +991,44 @@ void checkMotionSensor() {
         } else {
             motionDetected = false;
         }
+        */
+
+        // // Check If 'P' Key Was Pressed.
+        if (Serial.available() > 0) {
+            char input = Serial.read();
+            
+            // Check if 'P' was pressed.
+            if (input == 'P') {
+                Serial.println("\n[INPUT] 'P' key pressed - simulating motion detection.");
+                
+                // Capture Image.
+                if (processImage()) {
+                    notifyGadget();
+
+                    Serial.println("[DETECTION] Person detected in the image.");
+                    Serial.println("[INFO] Turning on lights...");
+
+                    digitalWrite(LEDStrip_Pin, HIGH);
+                    digitalWrite(Alarm_Pin, HIGH);
+
+                    Serial.println("[INFO] Triggering alarm...");
+                    Serial.println("[INFO] Sending notification to gadget...");
+
+                    delay(5000);
+
+                    digitalWrite(LEDStrip_Pin, LOW);
+                    digitalWrite(Alarm_Pin, LOW);
+
+                    Serial.println("[INFO] Alarm turned off.");
+                    Serial.println("[INFO] Lights turned off.");
+
+                delay(2000);
+                } else {
+                    Serial.println("[INFO] No person detected in image.");
+                }
+            }
+        }
+
     }
 }
 
