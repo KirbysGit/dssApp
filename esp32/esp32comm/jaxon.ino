@@ -44,6 +44,31 @@ const char* WIFI_PASS = "goodlife";
 const char* GADGET_IP = "http://192.168.8.206";
 const char* APP_IP = "x";
 
+// Passive IR sensor pin.
+const byte PassiveIR_Pin = GPIO_NUM_12;
+
+// Active IR sensor pin #1.
+const byte ActiveIR1_Pin = GPIO_NUM_14;
+
+// Active IR sensor pin #2.
+const byte ActiveIR2_Pin = GPIO_NUM_13;
+
+// White LED Strip.
+const byte LEDStrip_Pin = GPIO_NUM_15;
+
+// Alarm (Buzzer).
+const byte Alarm_Pin = GPIO_NUM_13;
+
+// Test LED #1.
+const byte RedLED_Pin = GPIO_NUM_2;
+
+// Test LED #2.
+const byte whiteLED_Pin = GPIO_NUM_16;
+
+// Chip Enable.
+const byte ChipEnable_Pin = GPIO_NUM_0;
+
+
 // ---------
 // CONSTANTS
 // ---------
@@ -466,6 +491,63 @@ void handleHeartbeat() {
     serialPrintWithDelay("Heartbeat response sent");
     serialPrintWithDelay("=========================================\n");
 } 
+
+void registerWithGadget() {
+    // Initialize HTTP Client.
+    HTTPClient http;
+
+    // Construct URLs.
+    String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
+    String url = "http://" + String(GADGET_IP) + "/person_detected";
+    
+    serialPrintWithDelay("\n--- Starting Registration Process ---");
+    serialPrintWithDelay("Camera URL: " + cameraUrl);
+    serialPrintWithDelay("Gadget URL: " + url);
+    
+    if (!http.begin(url)) {
+        serialPrintWithDelay("[ERROR] Failed to begin HTTP connection");
+        return;
+    }
+
+    // Add Headers.
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(10000);
+
+    // Create JSON Message.
+    String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\"}";
+    serialPrintWithDelay("Sending registration data...");
+    
+    // Send Message.
+    int httpCode = http.POST(message);
+    serialPrintWithDelay("HTTP Response code: " + String(httpCode));
+    
+    // Case for Successful Registration.
+    if (httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        serialPrintWithDelay("Registration successful!");
+        serialPrintWithDelay("Response length: " + String(response.length()) + " bytes");
+        
+        // Print Response in Smaller Chunks w/ Delays.
+        const int chunkSize = 64;  // Reduced chunk size.
+        serialPrintWithDelay("Response content:");
+        printChunked(response);
+    } else {
+        serialPrintWithDelay("[ERROR] Registration failed, code: " + String(httpCode));
+        // Try a Few More Times if Failed.
+        for(int i = 0; i < 3 && httpCode != HTTP_CODE_OK; i++) {
+            delay(1000);
+            serialPrintWithDelay("Retry attempt " + String(i + 1) + "...");
+            httpCode = http.POST(message);
+            if(httpCode == HTTP_CODE_OK) {
+                serialPrintWithDelay("Registration successful on retry!");
+                break;
+            }
+        }
+    }
+    
+    http.end();
+    serialPrintWithDelay("--- Registration Process Completed ---");
+}
 
 // Main Setup Function.
 void setup()
