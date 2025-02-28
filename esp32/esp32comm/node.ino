@@ -1,5 +1,3 @@
-#include <Person_detector_x2_inferencing.h>
-
 // -----------------------------------------------------------------
 //                           main.ino(node)
 //
@@ -32,8 +30,8 @@
 #include "base64.h"
 
 // Image Processing Imports.
-#include <Person_detector_x2_inferencing.h>
 #include "edge-impulse-sdk/dsp/image/image.hpp"
+#include <Person_detector_x1_inferencing.h>
 
 // Photo capture triggered by GPIO pin rising/falling.
 // #define TRIGGER_MODE  // Comment out to enable test mode simulation
@@ -84,10 +82,10 @@ const byte LEDStrip_Pin = GPIO_NUM_15;
 const byte Alarm_Pin = GPIO_NUM_13;
 
 // Test LED #1.
-const byte REDLED_Pin = GPIO_NUM_2;
+const byte TestLED1_Pin = GPIO_NUM_2;
 
 // Test LED #2.
-const byte whitePin = GPIO_NUM_16;
+const byte TestLED2_Pin = GPIO_NUM_16;
 
 // Chip Enable.
 const byte ChipEnable_Pin = GPIO_NUM_0;
@@ -111,13 +109,11 @@ const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 secon
 const int MAX_MISSED_HEARTBEATS = 5;
 int missedHeartbeats = 0;
 
-uint8_t *snapshot_buf = nullptr;  // Declare globally
-  
 // ----------------------------------------------------------------------------------------
 // Helper Functions.
 // ----------------------------------------------------------------------------------------
 
-void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 50) {
+void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) {
     if (newLine) {
         Serial.println(message);
     } else {
@@ -148,7 +144,7 @@ bool initCamera() {
     cfg.setPins(pins::AiThinker);
     
     // Set resolution.
-    cfg.setResolution(Resolution::find(320, 240));  // QVGA  // Lower resolution
+    cfg.setResolution(Resolution::find(320, 240));  // QVGA resolution
     cfg.setBufferCount(1);  // Reduce memory usage
     cfg.setJpeg(10);  // Lower quality for better compression
     
@@ -451,7 +447,7 @@ void handleTriggerAlarm() {
     // Activate Alarm.
     alarmActive = true;
     digitalWrite(Alarm_Pin, HIGH);
-    digitalWrite(REDLED_Pin, HIGH);
+    digitalWrite(TestLED1_Pin, HIGH);
 
     delay(200);  // Small delay to ensure the alarm gets triggered
     
@@ -482,7 +478,7 @@ void handleTurnOffAlarm() {
     // Deactivate Alarm.
     alarmActive = false;
     digitalWrite(Alarm_Pin, LOW);
-    digitalWrite(REDLED_Pin, LOW);
+    digitalWrite(TestLED1_Pin, LOW);
 
     delay(200);  // Small delay to ensure the alarm gets triggered
     
@@ -595,7 +591,7 @@ void setup()
 {
     // Initialize Serial Communication w/ Larger Buffer & Lower Baud Rate.
 
-    Serial.begin(115200);  // Reduced Baud Rate for Better Stability.
+    Serial.begin(57600);  // Reduced Baud Rate for Better Stability.
     delay(100);  // Give Serial Time to Initialize.
 
     serialPrintWithDelay("\n--------------------------------");
@@ -810,8 +806,10 @@ void simulatePersonDetection() {
 // -----------------------------------------------------------------------------------------
 // Edge Impulse Image Processing.
 // -----------------------------------------------------------------------------------------
+
 static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
 {
+<<<<<<< HEAD
     // Add bounds checking and debug info
     size_t pixel_ix = offset * 3;
     size_t buf_size = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3;
@@ -848,9 +846,26 @@ static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
         pixel_ix += 3;
     }
 
+=======
+    // we already have a RGB888 buffer, so recalculate offset into pixel index
+    size_t pixel_ix = offset * 3;
+    size_t pixels_left = length;
+    size_t out_ptr_ix = 0;
+
+    while (pixels_left != 0) {
+        // Swap BGR to RGB here
+        // due to https://github.com/espressif/esp32-camera/issues/379
+        out_ptr[out_ptr_ix] = (snapshot_buf[pixel_ix + 2] << 16) + (snapshot_buf[pixel_ix + 1] << 8) + snapshot_buf[pixel_ix];
+
+        // go to the next pixel
+        out_ptr_ix++;
+        pixel_ix+=3;
+        pixels_left--;
+    }
+    // and done!
+>>>>>>> parent of 6a9ceca (Node Set Up for Testing Instead.)
     return 0;
 }
-
 // -----------------------------------------------------------------------------------------
 // Process Image with Edge Impulse Model.
 // -----------------------------------------------------------------------------------------
@@ -863,6 +878,7 @@ bool processImage() {
         return false;
     }
 
+<<<<<<< HEAD
     // Ensure the buffer is not NULL before using it
     if (!fb->buf || fb->len == 0) {
         Serial.println("[ERROR] Camera buffer is NULL or empty");
@@ -881,15 +897,22 @@ bool processImage() {
     
     // Allocate Buffer for Processing.
     snapshot_buf = (uint8_t *)malloc(buf_size);
+=======
+    // Allocate Buffer for Processing.
+    uint8_t * snapshot_buf = (uint8_t *)malloc(EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT * 3);
+>>>>>>> parent of 6a9ceca (Node Set Up for Testing Instead.)
     if (!snapshot_buf) {
         Serial.println("[ERROR] Failed to allocate buffer for image processing");
         esp_camera_fb_return(fb);
         return false;
     }  
 
+<<<<<<< HEAD
     // Debug print buffer size
     Serial.printf("[DEBUG] Allocated buffer size: %d bytes\n", buf_size);
 
+=======
+>>>>>>> parent of 6a9ceca (Node Set Up for Testing Instead.)
     // Convert Image to RGB888.
     bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
     esp_camera_fb_return(fb);
@@ -940,7 +963,11 @@ bool processImage() {
 
     // Free Buffer only after we're done with all processing
     free(snapshot_buf);
+<<<<<<< HEAD
     snapshot_buf = nullptr;
+=======
+    esp_camera_fb_return(fb);
+>>>>>>> parent of 6a9ceca (Node Set Up for Testing Instead.)
 
     return personDetected;
 }
@@ -950,14 +977,13 @@ bool processImage() {
 
 void checkMotionSensor() {
     // Check motion sensor at regular intervals.
-    /*
+
     if (millis() - lastMotionCheck >= MOTION_CHECK_INTERVAL) {
         lastMotionCheck = millis();
         
         // Read PIR sensor.
         int pirValue = digitalRead(PassiveIR_Pin);
         if (pirValue == HIGH) {
-            
             Serial.println("\n[MOTION] PIR sensor detected motion.");
             
             // Capture Image.
@@ -972,25 +998,6 @@ void checkMotionSensor() {
         }
             
     }
-    */
-
-    // Testing Image Processing Algorithm w/o Passive IR.
-    if (Serial.available() > 0) {
-        char input = Serial.read();
-        
-        // Check if 'P' was pressed (case sensitive)
-        if (input == 'P') {
-            Serial.println("\n[INPUT] 'P' key pressed - simulating motion detection.");
-            
-            // Capture Image.
-            if (processImage()) {
-                Serial.println("[DETECTION] Person detected in image!!!!");
-                notifyGadget();
-            } else {
-                Serial.println("[INFO] No person detected in image.");
-            }
-        }
-    }
 }
 
 // -----------------------------------------------------------------------------------------
@@ -999,24 +1006,24 @@ void checkMotionSensor() {
 
 void initializeHardware() {
     serialPrintWithDelay("\n========== INITIALIZING HARDWARE ==========");
- 
+    /*
     // Initialize input pins.
     pinMode(PassiveIR_Pin, INPUT);
-    pinMode(ActiveIR1_Pin, INPUT);
-    // pinMode(Tamper_Pin, INPUT_PULLUP);
+    pinMode(ActiveIR_Pin, INPUT);
+    pinMode(Tamper_Pin, INPUT_PULLUP);
     
     // Initialize output pins.
     pinMode(LEDStrip_Pin, OUTPUT);
     pinMode(Alarm_Pin, OUTPUT);
-    pinMode(REDLED_Pin, OUTPUT);
+    pinMode(RedLED_Pin, OUTPUT);
     pinMode(whitePin, OUTPUT);
     
     // Set initial states.
     digitalWrite(LEDStrip_Pin, LOW);
     digitalWrite(Alarm_Pin, LOW);
-    digitalWrite(REDLED_Pin, LOW);
+    digitalWrite(RedLED_Pin, LOW);
     digitalWrite(whitePin, LOW);
-   
+    */
     // Print notification.
     serialPrintWithDelay("PIR sensors initialized");
     serialPrintWithDelay("Output devices initialized");
@@ -1048,7 +1055,7 @@ void loop()
         if (!isHandlingRequest) {
             isHandlingRequest = true;
             lastRequestTime = millis();
-            digitalWrite(REDLED_Pin, HIGH); // Visual indicator that we're handling a request
+            digitalWrite(RedLED_Pin, HIGH); // Visual indicator that we're handling a request
         }
     }
     
@@ -1058,7 +1065,7 @@ void loop()
     // Reset LED after request.
     if (isHandlingRequest && millis() - lastRequestTime > 100) {
         isHandlingRequest = false;
-        digitalWrite(REDLED_Pin, LOW);
+        digitalWrite(RedLED_Pin, LOW);
     }
     
     // 3. Check Motion Sensor at Regular Intervals.
@@ -1082,7 +1089,7 @@ void loop()
         if (millis() - lastAlarmToggle >= 500) {  // Toggle every 500ms
             lastAlarmToggle = millis();
             digitalWrite(Alarm_Pin, !digitalRead(Alarm_Pin));
-            digitalWrite(REDLED_Pin, !digitalRead(REDLED_Pin));
+            digitalWrite(RedLED_Pin, !digitalRead(RedLED_Pin));
             // Also flash the white LED for additional visibility
             digitalWrite(whitePin, !digitalRead(whitePin));
         }
@@ -1090,7 +1097,7 @@ void loop()
     
     // Uncomment this section to test person detection notifications with the mobile app
     // 6. Test person detection simulation
-    // simulatePersonDetection();
+    simulatePersonDetection();
     
     
     // Small delay to prevent overwhelming the CPU
