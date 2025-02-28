@@ -117,6 +117,38 @@ static bool debug_nn = false; // Set this to true to see e.g. features generated
 static bool is_initialised = false;
 uint8_t *snapshot_buf; // points to the output of the capture
 
+// Hardware state variables.
+bool alarmActive = false;
+bool lightsActive = false;
+bool motionDetected = false;
+unsigned long lastMotionCheck = 0;
+const unsigned long MOTION_CHECK_INTERVAL = 500; // Check motion every 500ms
+
+// Heartbeat variables.
+unsigned long lastHeartbeat = 0;
+const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 seconds
+const int MAX_MISSED_HEARTBEATS = 5;
+int missedHeartbeats = 0;
+
+// Helper functions.
+void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) {
+    if (newLine) {
+        Serial.println(message);
+    } else {
+        Serial.print(message);
+    }
+    Serial.flush();
+    delay(delayMs);  // Allow time for the buffer to clear
+}
+
+void printChunked(const String& message, int chunkSize = 32) {
+    for (size_t i = 0; i < message.length(); i += chunkSize) {
+        String chunk = message.substring(i, min(i + chunkSize, message.length()));
+        serialPrintWithDelay(chunk, false, 5);
+    }
+    serialPrintWithDelay("", true, 10);  // Final newline
+}
+
 // Configure camera.
 static camera_config_t camera_config = 
 {
@@ -167,6 +199,274 @@ bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf
 // CODE
 // ----
 
+// -----------------------------------------------------------------------------------------
+// Handle root endpoint (/)
+// -----------------------------------------------------------------------------------------
+
+// Serves as a overall Health Check for the Node.
+// Accessed at http://<node-ip>/ should display "ESP32-CAM Node 1".
+
+void handleRoot() {
+  server.send(200, "text/plain", "ESP32-CAM Node 1");
+}
+
+// -----------------------------------------------------------------------------------------
+// Handle capture request. (/capture)
+// -----------------------------------------------------------------------------------------
+
+// Capturing Photo & Sending Photo Back As HTTP Response.
+
+void handleCapture() {
+    // Attempt to Capture Frame.
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+        // If capture fails, send error response.
+        server.send(500, "text/plain", "Camera capture failed");
+        return;
+    }
+
+    // Clear Any Existing Headers.
+    server.client().flush();
+    
+    // Set Required HTTP Headers.
+    server.sendHeader("Content-Type", "image/jpeg");  // Specify JPEG format
+    server.sendHeader("Access-Control-Allow-Origin", "*");  // Enable CORS
+    server.sendHeader("Connection", "close");  // Close connection after sending
+    
+    // Prepare Response w/ Correct Content Length.
+    server.setContentLength(fb->len);
+    server.send(200);  // Send success status
+
+    // Get Client Connection & Send Image Data.
+    WiFiClient client = server.client();
+    client.write(fb->buf, fb->len);
+    
+    // Clean Up Allocated Memory & Log Success.
+    esp_camera_fb_return(fb);
+    serialPrintWithDelay("Sent image: " + String(fb->len) + " bytes");
+}
+
+// -----------------------------------------------------------------------------------------
+// Notify Gadget of Person Detection.
+// -----------------------------------------------------------------------------------------
+
+// Communication to Gadget of Way to Access Node's Photo.
+
+void notifyGadget() {
+    // Ensure Wi-Fi is Connected.
+    if (WiFi.status() != WL_CONNECTED) {
+        serialPrintWithDelay("[ERROR] Wi-Fi Disconnected! Cannot send notification.");
+        return;
+    }
+
+    // Initialize HTTP Client.
+    HTTPClient http;
+
+    // Construct URLs.
+    String cameraUrl = "http://" + WiFi.localIP().toString() + "/capture";
+    String url = "http://" + String(GADGET_IP) + "/person_detected";
+    
+    // Log URLs.
+    serialPrintWithDelay("\n--- Sending Notification to Gadget ---");
+    serialPrintWithDelay("Camera URL: " + cameraUrl);
+    serialPrintWithDelay("Gadget URL: " + url);
+    
+    // Attempt to Begin HTTP Connection.
+    if (!http.begin(url)) {
+        serialPrintWithDelay("[ERROR] Failed to begin HTTP connection");
+        return;
+    }
+    
+    // Add Headers.
+    http.addHeader("Content-Type", "application/json");
+    
+    // Create JSON w/ Camera Information & Timestamp.
+    String timestamp = "2025-01-20T12:34:56Z";  // In real implementation, get actual timestamp
+    String message = "{\"camera_url\":\"" + cameraUrl + "\",\"node\":\"camera_node1\",\"timestamp\":\"" + timestamp + "\"}";
+    serialPrintWithDelay("Sending message: " + message);
+    
+    // Increase Timeout to Allow Network Recovery.
+    http.setTimeout(10000);  // 10 seconds
+    
+    // Send Message.
+    int httpCode = http.POST(message);
+    serialPrintWithDelay("HTTP Response code: " + String(httpCode));
+    
+    // Case for Successful Notification.
+    if (httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        serialPrintWithDelay("Response received, length: " + String(response.length()) + " bytes");
+        
+        // Print Response in Chunks.
+        printChunked(response);
+        serialPrintWithDelay("Notification sent successfully");
+    } else {
+        // Case for Failed Notification.
+        serialPrintWithDelay("[ERROR] Failed to send notification, HTTP error: " + String(httpCode));
+        if (httpCode > 0) {
+            String response = http.getString();
+            serialPrintWithDelay("Error response: " + response);
+        }
+    }
+    
+    // End HTTP Connection.
+    http.end();
+    serialPrintWithDelay("--- Notification Process Completed ---");
+}
+
+// -----------------------------------------------------------------------------------------
+// Trigger Alarm.
+// -----------------------------------------------------------------------------------------
+
+void handleTriggerAlarm() {
+    serialPrintWithDelay("\n========== TRIGGER ALARM REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
+    
+    // Print Request Headers.
+    serialPrintWithDelay("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
+    }
+    
+    // Activate Alarm.
+    alarmActive = true;
+    digitalWrite(Alarm_Pin, HIGH);
+    digitalWrite(RedLED_Pin, HIGH);
+
+    delay(200);  // Small delay to ensure the alarm gets triggered
+    
+    // Send detailed response
+    String response = "{\"status\":\"alarm_triggered\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Turn Off Alarm.
+// -----------------------------------------------------------------------------------------
+
+void handleTurnOffAlarm() {
+    serialPrintWithDelay("\n========== TURN OFF ALARM REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
+    
+    // Print Request Headers.
+    serialPrintWithDelay("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
+    }
+    
+    // Deactivate Alarm.
+    alarmActive = false;
+    digitalWrite(Alarm_Pin, LOW);
+    digitalWrite(RedLED_Pin, LOW);
+
+    delay(200);  // Small delay to ensure the alarm gets triggered
+    
+    // Send Detailed Response.
+    String response = "{\"status\":\"alarm_deactivated\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Turn On Lights.
+// -----------------------------------------------------------------------------------------
+
+void handleTurnOnLights() {
+    // Print Detailed Request Information.
+    serialPrintWithDelay("\n========== TURN ON LIGHTS REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
+    
+    // Print Request Headers.
+    serialPrintWithDelay("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
+    }
+    
+    // Activate Lights.
+    lightsActive = true;
+    digitalWrite(LEDStrip_Pin, HIGH);
+    //digitalWrite(whitePin, HIGH);
+
+    delay(200);  // Small delay to ensure the lights get activated
+    
+    // Send Detailed Response.
+    String response = "{\"status\":\"lights_activated\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Turn Off Lights.
+// -----------------------------------------------------------------------------------------
+
+void handleTurnOffLights() {
+    // Print Detailed Request Information.
+    serialPrintWithDelay("\n========== TURN OFF LIGHTS REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    serialPrintWithDelay("HTTP Method: " + server.method());
+    serialPrintWithDelay("URI: " + server.uri());
+    
+    // Print Request Headers.
+    serialPrintWithDelay("\nRequest Headers:");
+    for (int i = 0; i < server.headers(); i++) {
+        serialPrintWithDelay(server.headerName(i) + ": " + server.header(i));
+    }
+    
+    // Deactivate Lights.
+    lightsActive = false;
+    digitalWrite(LEDStrip_Pin, LOW);
+    //digitalWrite(whitePin, LOW);
+
+    delay(200);  // Small delay to ensure the lights get deactivated
+    
+    // Send Detailed Response.
+    String response = "{\"status\":\"lights_deactivated\",\"timestamp\":\"" + String(millis()) + "\"}";
+    server.send(200, "application/json", response);
+    serialPrintWithDelay("\nResponse sent: " + response);
+    serialPrintWithDelay("=========================================\n");
+}
+
+// -----------------------------------------------------------------------------------------
+// Heartbeat.
+// -----------------------------------------------------------------------------------------
+
+void handleHeartbeat() {
+    serialPrintWithDelay("\n========== HEARTBEAT REQUEST ==========");
+    serialPrintWithDelay("Time: " + String(millis()));
+    serialPrintWithDelay("Client IP: " + server.client().remoteIP().toString());
+    
+    // Reset Missed Heart Beats Counter.
+    missedHeartbeats = 0;
+    
+    // Create Status JSON.
+    String response = "{";
+    response += "\"status\":\"alive\",";
+    response += "\"uptime\":" + String(millis()) + ",";
+    response += "\"alarm_active\":" + String(alarmActive ? "true" : "false") + ",";
+    response += "\"lights_active\":" + String(lightsActive ? "true" : "false") + ",";
+    response += "\"motion_detected\":" + String(motionDetected ? "true" : "false");
+    response += "}";
+    
+    // Send Response.
+    server.send(200, "application/json", response);
+    serialPrintWithDelay("Heartbeat response sent");
+    serialPrintWithDelay("=========================================\n");
+} 
+
 // Main Setup Function.
 void setup()
 {
@@ -201,13 +501,14 @@ void setup()
     WiFi.mode(WIFI_STA);  // Wifi to station mode.
     WiFi.begin(WIFI_SSID, WIFI_PASS); // Connect to the wifi network.
 
-    // Start the server and define the endpoint for sounding alarm.
-    server.on("/sound_alarm", HTTP_GET, soundAlarm);
+// Set up HTTP server endpoints with minimal logging
+    server.on("/", HTTP_GET, handleRoot);
     server.on("/capture", HTTP_GET, handleCapture);
-    server.on("/disable_alarm", HTTP_GET, disableAlarm);
-    server.on("/enable_lights", HTTP_GET, enableLights);
-    server.begin();
-    Serial.println("HTTP server started");
+    server.on("/trigger_alarm", HTTP_GET, handleTriggerAlarm);
+    server.on("/turn_off_alarm", HTTP_GET, handleTurnOffAlarm);
+    server.on("/turn_on_lights", HTTP_GET, handleTurnOnLights);
+    server.on("/turn_off_lights", HTTP_GET, handleTurnOffLights);
+    server.on("/heartbeat", HTTP_GET, handleHeartbeat);
 
     // Wifi attempt tracker, ensure fast connection.
     int attempts = 0;
@@ -223,11 +524,10 @@ void setup()
     }
 
     // Wifi connection success.
-    if (WiFi.status() == WL_CONNECTED) 
-    {
-        Serial.print("Connected! IP Address: ");
-        Serial.println(WiFi.localIP());
-    } 
+    if (WiFi.status() == WL_CONNECTED) {
+        serialPrintWithDelay("\nRegistering with gadget...");
+        registerWithGadget();
+    }
     
     // Wifi connection fail.
     else 
@@ -272,65 +572,6 @@ void handleCapture()
     Serial.printf("Sent image: %d bytes\n", fb->len);
 }
 
-void enableLights()
-{
-    // Turn on LED's.
-    digitalWrite(LEDStrip_Pin, HIGH); // turn on
-}
-
-void disableAlarm()
-{
-    // digitally write to disable alarm.
-    digitalWrite(Alarm_Pin, LOW); // turn off
-
-    // Turn off LED's.
-    digitalWrite(LEDStrip_Pin, LOW); // turn off
-}
-
-void soundAlarm()
-{
-    // Digitally write to alarm to sound it high.
-    digitalWrite(Alarm_Pin, HIGH); // turn on
-
-    // Turn on LED's.
-    digitalWrite(LEDStrip_Pin, HIGH); // turn on
-}
-
-// Function to send an HTTP POST request to the gadget
-void sendAlertToGadget()
-{
-    if (WiFi.status() == WL_CONNECTED) 
-    {
-        HTTPClient http;
-        http.begin(String("http://") + GADGET_IP + "/person_detected");
-
-        // Prepare JSON payload
-        String payload = "{";
-        payload += "\"event\": \"person_detected\", ";
-        payload += "}";
-
-        http.addHeader("Content-Type", "application/json");
-
-        // Send the POST request
-        int httpResponseCode = http.POST(payload);
-
-        // Handle the response
-        if (httpResponseCode > 0) 
-        {
-            Serial.printf("Alert sent to gadget. HTTP Response: %d\n", httpResponseCode);
-        } 
-        else 
-        {
-            Serial.printf("Failed to send alert. Error: %s\n", http.errorToString(httpResponseCode).c_str());
-        }
-
-        http.end(); // Close the connection
-    } 
-    else 
-    {
-        Serial.println("WiFi disconnected. Cannot send alert.");
-    }
-}
 
 // Main Loop Function
 void loop()
@@ -409,19 +650,31 @@ void loop()
 #endif
 
     if (personDetected) 
-    {                                                                                                                                                                                                                                                                                                                                                                                       
-      sendAlertToGadget();
-      
-      digitalWrite(LEDStrip_Pin, LOW); // turn off
-      delay(2000);
-      digitalWrite(LEDStrip_Pin, HIGH); // turn on
-      Serial.println("led flashed");
-      delay(2000);
-      digitalWrite(LEDStrip_Pin, LOW); // turn off
+    {
+        notifyGadget();
+
+        Serial.println("[INFO] Person detected in the image.");
+        Serial.println("[INFO] Turning on lights...");
+
+        digitalWrite(LEDStrip_Pin, HIGH);
+        digitalWrite(Alarm_Pin, HIGH);
+
+        Serial.println("[INFO] Triggering alarm...");
+        Serial.println("[INFO] Sending notification to gadget...");
+
+        delay(5000);
+
+        digitalWrite(LEDStrip_Pin, LOW);
+        digitalWrite(Alarm_Pin, LOW);
+
+        Serial.println("[INFO] Alarm turned off.");
+        Serial.println("[INFO] Lights turned off.");
+
+        delay(2000);
     } 
     else 
     {
-        Serial.println("No person detected in the image.");
+        Serial.println("[INFO] No person detected in the image.");
     }
 
     free(snapshot_buf);
