@@ -44,20 +44,12 @@ const char* WIFI_PASS = "goodlife";
 const char* GADGET_IP = "http://192.168.8.206";
 const char* APP_IP = "x";
 
-// Passive IR sensor pin.
-const byte PassiveIR_Pin = GPIO_NUM_12;
 
 // Active IR sensor pin #1.
 const byte ActiveIR1_Pin = GPIO_NUM_14;
 
 // Active IR sensor pin #2.
 const byte ActiveIR2_Pin = GPIO_NUM_13;
-
-// White LED Strip.
-const byte LEDStrip_Pin = GPIO_NUM_15;
-
-// Alarm (Buzzer).
-const byte Alarm_Pin = GPIO_NUM_13;
 
 // Test LED #1.
 const byte RedLED_Pin = GPIO_NUM_2;
@@ -172,6 +164,35 @@ void printChunked(const String& message, int chunkSize = 32) {
         serialPrintWithDelay(chunk, false, 5);
     }
     serialPrintWithDelay("", true, 10);  // Final newline
+}
+
+void checkWiFiConnection() {
+    // Check WiFi Connection.
+    if (WiFi.status() != WL_CONNECTED) {
+        serialPrintWithDelay("[WARNING] Wi-Fi lost! Attempting to reconnect...");
+        
+        // Disconnect and reconnect.
+        WiFi.disconnect();
+        WiFi.reconnect();
+        
+        // Attempt to reconnect.
+        int attempts = 0;
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(1000);
+            Serial.print(".");
+            attempts++;
+        }
+
+        // Case for Successful Reconnection.
+        if (WiFi.status() == WL_CONNECTED) {
+            serialPrintWithDelay("\nWi-Fi reconnected successfully!");
+        serialPrintWithDelay("ESP32-CAM IP Address: " + WiFi.localIP().toString());
+        } else {
+            serialPrintWithDelay("\n[ERROR] Failed to reconnect. Restarting...");
+            delay(5000);
+            ESP.restart();
+        }
+    }
 }
 
 // Configure camera.
@@ -622,36 +643,6 @@ void setup()
     Serial.println(WiFi.localIP());
 
     ei_printf("\nWaiting for Passive IR trigger to start image processing...\n");
-}
-
-void handleCapture()
-{
-    camera_fb_t *fb = esp_camera_fb_get();
-    if(!fb)
-    {
-        server.send(500, "text/plain", "Camera capture failed");
-        return;
-    }
-
-    // Clear existing headers.
-    server.client().flush();
-
-    // Set headers properly.
-    server.sendHeader("Content-Type", "image/jpeg");
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Connection", "close");
-
-    // send response with content length.
-    server.setContentLength(fb->len);
-    server.send(200);
-
-    // Send the image data.
-    WiFiClient client = server.client();
-    client.write(fb->buf, fb->len);
-
-    // Clean up.
-    esp_camera_fb_return(fb);
-    Serial.printf("Sent image: %d bytes\n", fb->len);
 }
 
 
