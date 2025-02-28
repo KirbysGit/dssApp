@@ -658,6 +658,59 @@ void handleCapture()
 // Main Loop Function
 void loop()
 {
+    // 1. Check Wi-Fi Connection & Reconnect if Disconnected.
+    static unsigned long lastWiFiCheck = 0;
+    const unsigned long WIFI_CHECK_INTERVAL = 10000; // Check every 10 seconds
+    
+    if (millis() - lastWiFiCheck > WIFI_CHECK_INTERVAL) {
+        lastWiFiCheck = millis();
+        checkWiFiConnection();
+    }
+
+    // 2. Handle Incoming HTTP Requests w/ Status Indicator.
+    static unsigned long lastRequestTime = 0;
+    static bool isHandlingRequest = false;
+    
+    if (server.client()) {
+        if (!isHandlingRequest) {
+            isHandlingRequest = true;
+            lastRequestTime = millis();
+            digitalWrite(RedLED_Pin, HIGH); // Visual indicator that we're handling a request
+        }
+    }
+    
+    // Handle Incoming Requests.
+    server.handleClient();
+    
+    // Reset LED after request.
+    if (isHandlingRequest && millis() - lastRequestTime > 100) {
+        isHandlingRequest = false;
+        digitalWrite(RedLED_Pin, LOW);
+    }
+
+    // 4. Check Heartbeat.
+    if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
+        lastHeartbeat = millis();
+        missedHeartbeats++;
+        
+        if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
+            serialPrintWithDelay("[WARNING] Multiple heartbeats missed. Checking WiFi connection...");
+            checkWiFiConnection();
+        }
+    }
+
+    // 5. Handle Alarm State.
+    if (alarmActive) {
+        // Toggle alarm for audible effect and LED for visual feedback.
+        static unsigned long lastAlarmToggle = 0;
+        if (millis() - lastAlarmToggle >= 500) {  // Toggle every 500ms
+            lastAlarmToggle = millis();
+            digitalWrite(Alarm_Pin, !digitalRead(Alarm_Pin));
+            digitalWrite(RedLED_Pin, !digitalRead(RedLED_Pin));
+            // Also flash the white LED for additional visibility
+            digitalWrite(whiteLED_Pin, !digitalRead(whiteLED_Pin));
+        }
+    }
   // (1) If passive IR sensor detects motion.
   char input = Serial.read();
   if (input == 'P') 
