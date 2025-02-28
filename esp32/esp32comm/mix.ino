@@ -1,66 +1,72 @@
-// -----------------------------------------------------------------
-//                           main.ino(node)
-//
-//
-// Description: Central point where the code runs on our 
-//              esp32-cam nodes.
-//
-// Name:         Date:           Description:
-// -----------   ---------       ----------------
-// Jaxon Topel   9/12/2024       Initial Creation
-// Jaxon Topel   9/13/2023       Setup Wifi/ESP32 connection
-// Jaxon Topel   1/13/2025       Architect Communication Network for Node/Gadget
-// Jaxon Topel   1/17/2025       Communication Network Debugging and Data integrity checks
-// Jaxon Topel   1/20/2025       Sending image from Node to Gadget
-//
-// Note(1): ChatGPT aided in the development of this code.
-// Note(2): To run this code in arduino ide, please use ai
-// thinker cam, 115200 baud rate to analyze serial communication,
-// and enter both the password and wifi to work within the network.
-//
-// -----------------------------------------------------------------
+// -----------------------------------------------------------------------------------------
+// INCLUDES.
+// -----------------------------------------------------------------------------------------
 
-// Imports. 
-#include <WebServer.h>
-#include <esp32cam.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <esp_camera.h>
-#include <esp_heap_caps.h>
-#include "base64.h"
+#include <Person_detector_x2_inferencing.h>     // Header for Edge impulse project.
+#include "edge-impulse-sdk/dsp/image/image.hpp" // Provides Image processing functions.
+#include "esp_camera.h"                         // Manages Camera Initialization.
+#include <WiFi.h>                               // Manages WiFi connectivity.
+#include <HTTPClient.h>                         // Enables HTTP Communication.
+#include <WebServer.h>                          // Manages Web Server.
+#include <esp32cam.h>                           // Manages Camera Initialization.
+#include <esp_heap_caps.h>                      // Manages Heap Memory.
+#include "base64.h"                             // Manages Base64 Encoding.
 
-// Photo capture triggered by GPIO pin rising/falling.
-// #define TRIGGER_MODE  // Comment out to enable test mode simulation
+// -----------------------------------------------------------------------------------------
+// DEFINES.
+// -----------------------------------------------------------------------------------------
 
-// PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
-// MUST USE 2.4GHz wifi band.
+#define CAMERA_MODEL_AI_THINKER // Has PSRAM
 
-// Kirby's Hotspot.
-/*
- * const char* WIFI_SSID = "mi telefono";
- * const char* WIFI_PASS = "password";
- * const char* GADGET_IP = "172.20.10.8";  // Your gadget's IP
-*/
+#if defined(CAMERA_MODEL_ESP_EYE)
+#define PWDN_GPIO_NUM    -1
+#define RESET_GPIO_NUM   -1
+#define XCLK_GPIO_NUM    4
+#define SIOD_GPIO_NUM    18
+#define SIOC_GPIO_NUM    23
 
-// Microrouter Network.
+#define Y9_GPIO_NUM      36
+#define Y8_GPIO_NUM      37
+#define Y7_GPIO_NUM      38
+#define Y6_GPIO_NUM      39
+#define Y5_GPIO_NUM      35
+#define Y4_GPIO_NUM      14
+#define Y3_GPIO_NUM      13
+#define Y2_GPIO_NUM      34
+#define VSYNC_GPIO_NUM   5
+#define HREF_GPIO_NUM    27
+#define PCLK_GPIO_NUM    25
 
-const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
-const char* WIFI_PASS = "goodlife";
-const char* GADGET_IP = "192.168.8.151";
+#elif defined(CAMERA_MODEL_AI_THINKER)
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
 
-// Start Web Server on port 80.
-WebServer server(80);
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
 
-// ----------
-// RESOLUTION
-// ----------
- 
-// Medium Resolution for better image quality while maintaining performance
-// static auto modelRes = esp32cam::Resolution::find(640, 480);  // VGA resolution
+#else
+#error "Camera model not selected"
+#endif
 
-// ---------
-// CONSTANTS
-// ---------
+#define EI_CAMERA_RAW_FRAME_BUFFER_COLS           320
+#define EI_CAMERA_RAW_FRAME_BUFFER_ROWS           240
+#define EI_CAMERA_FRAME_BYTE_SIZE                 3
+
+// -----------------------------------------------------------------------------------------
+// PINS.
+// -----------------------------------------------------------------------------------------
 
 // Passive IR sensor pin.
 const byte PassiveIR_Pin = GPIO_NUM_12;
@@ -81,31 +87,115 @@ const byte Alarm_Pin = GPIO_NUM_13;
 const byte RedLED_Pin = GPIO_NUM_2;
 
 // Test LED #2.
-const byte whiteLED_Pin = GPIO_NUM_16;
+const byte WhiteLED_Pin = GPIO_NUM_16;
 
 // Chip Enable.
 const byte ChipEnable_Pin = GPIO_NUM_0;
 
-// Front facing white led.
-//const byte whitePin = GPIO_NUM_3;
+// -----------------------------------------------------------------------------------------
+// CONSTANTS.
+// -----------------------------------------------------------------------------------------
 
-// Tampering pin.
-//const byte Tamper_Pin = GPIO_NUM_1;
-
-// Hardware state variables.
-bool alarmActive = false;
-bool lightsActive = false;
-bool motionDetected = false;
-unsigned long lastMotionCheck = 0;
-const unsigned long MOTION_CHECK_INTERVAL = 500; // Check motion every 500ms
+// Hardware state variables.        
+bool alarmActive = false;                         // Indicates if the alarm is active.
+bool lightsActive = false;                        // Indicates if the lights are active.
+bool motionDetected = false;                      // Indicates if motion has been detected.
+bool personDetected = false;                      // Indicates if a person has been detected.
+bool cameraInitialized = false;                   // Indicates if the camera is initialised.
+unsigned long lastMotionCheck = 0;                // Last motion check timestamp.
+const unsigned long MOTION_CHECK_INTERVAL = 500;  // Check motion every 500ms
 
 // Heartbeat variables.
-unsigned long lastHeartbeat = 0;
-const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 seconds
-const int MAX_MISSED_HEARTBEATS = 5;
-int missedHeartbeats = 0;
+unsigned long lastHeartbeat = 0;                 // Last heartbeat timestamp.
+const unsigned long HEARTBEAT_INTERVAL = 30000;  // Send heartbeat every 30 seconds
+const int MAX_MISSED_HEARTBEATS = 5;             // Maximum number of missed heartbeats.
+int missedHeartbeats = 0;                        // Number of missed heartbeats.
 
-// Helper functions.
+// Private variables
+static bool debug_nn = false;                    // Set this to true to see e.g. features generated from the raw signal
+static bool is_initialised = false;              // Indicates if the camera is initialized.
+uint8_t *snapshot_buf;                           // points to the output of the capture
+
+// -----------------------------------------------------------------------------------------
+// WIFI CONFIG.
+// -----------------------------------------------------------------------------------------
+
+// Microrouter Network.
+const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
+const char* WIFI_PASS = "goodlife";
+const char* GADGET_IP = "192.168.8.151";
+
+// Kirby's Hotspot.
+/*
+const char* WIFI_SSID = "mi telefono";
+const char* WIFI_PASS = "password";
+const char* GADGET_IP = "172.20.10.8";
+*/
+
+// -----------------------------------------------------------------------------------------
+// WEB SERVER.
+// -----------------------------------------------------------------------------------------
+
+WebServer server(80);
+
+// -----------------------------------------------------------------------------------------
+// CAMERA CONFIG.
+// -----------------------------------------------------------------------------------------
+
+static camera_config_t camera_config = 
+{
+    .pin_pwdn = PWDN_GPIO_NUM,
+    .pin_reset = RESET_GPIO_NUM,
+    .pin_xclk = XCLK_GPIO_NUM,
+    .pin_sscb_sda = SIOD_GPIO_NUM,
+    .pin_sscb_scl = SIOC_GPIO_NUM,
+
+    .pin_d7 = Y9_GPIO_NUM,
+    .pin_d6 = Y8_GPIO_NUM,
+    .pin_d5 = Y7_GPIO_NUM,
+    .pin_d4 = Y6_GPIO_NUM,
+    .pin_d3 = Y5_GPIO_NUM,
+    .pin_d2 = Y4_GPIO_NUM,
+    .pin_d1 = Y3_GPIO_NUM,
+    .pin_d0 = Y2_GPIO_NUM,
+    .pin_vsync = VSYNC_GPIO_NUM,
+    .pin_href = HREF_GPIO_NUM,
+    .pin_pclk = PCLK_GPIO_NUM,
+
+    //XCLK 20MHz or 10MHz for OV2640 double FPS (Experimental)
+    .xclk_freq_hz = 20000000,       // Set Clock speed (20Mhz)
+    .ledc_timer = LEDC_TIMER_0,
+    .ledc_channel = LEDC_CHANNEL_0,
+
+    .pixel_format = PIXFORMAT_JPEG, // Use JPEG for Pixel Format
+    .frame_size = FRAMESIZE_QVGA,    //QQVGA-UXGA Do not use sizes above QVGA when not JPEG
+
+    .jpeg_quality = 12, //0-63 lower number means higher quality
+    .fb_count = 1,       //if more than one, i2s runs in continuous mode. Use only with JPEG
+    .fb_location = CAMERA_FB_IN_PSRAM,
+    .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+};
+
+// -----------------------------------------------------------------------------------------
+// FUNCTION DEFINITIONS.
+// -----------------------------------------------------------------------------------------
+
+// De-initializes camera.
+void ei_camera_deinit(void);
+
+// Initializes camera, true if success.
+bool ei_camera_init(void);
+
+// Captures image and stores in buffer.
+bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) ;
+
+// -----------------------------------------------------------------------------------------
+// HELPER FUNCTIONS.
+// -----------------------------------------------------------------------------------------
+
+// * NOTE : Added for sake of not overwloading the serial buffer.
+
+// Prints message to serial with delay.
 void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) {
     if (newLine) {
         Serial.println(message);
@@ -116,6 +206,9 @@ void serialPrintWithDelay(const String& message, bool newLine = true, int delayM
     delay(delayMs);  // Allow time for the buffer to clear
 }
 
+// -----------------------------------------------------
+
+// Prints message to serial in chunks.
 void printChunked(const String& message, int chunkSize = 32) {
     for (size_t i = 0; i < message.length(); i += chunkSize) {
         String chunk = message.substring(i, min(i + chunkSize, message.length()));
@@ -124,190 +217,167 @@ void printChunked(const String& message, int chunkSize = 32) {
     serialPrintWithDelay("", true, 10);  // Final newline
 }
 
-// ----
-// CODE
-// ----
-
 // -----------------------------------------------------------------------------------------
-// Camera Initialization
+// CODE.
 // -----------------------------------------------------------------------------------------
 
-bool initCamera() {
-    serialPrintWithDelay("\n========== INITIALIZING CAMERA ==========");
-    
-    // Initialize camera configuration.
-    using namespace esp32cam;
-    Config cfg;
-    cfg.setPins(pins::AiThinker);
-    
-    // Set resolution.
-    cfg.setResolution(Resolution::find(320, 240));  // QVGA resolution
-    cfg.setBufferCount(1);  // Reduce memory usage
-    cfg.setJpeg(10);  // Lower quality for better compression
-    
-    // Initialize camera.
-    bool success = Camera.begin(cfg);
-    if (!success) {
-        serialPrintWithDelay("[ERROR] Camera initialization failed!");
-        serialPrintWithDelay("Possible causes:");
-        serialPrintWithDelay("1. Camera hardware issue");
-        serialPrintWithDelay("2. Power supply issue");
-        serialPrintWithDelay("3. PSRAM issue");
-        return false;
+// -----------------------------------------------------------------------------------------
+// CAMERA INITIALIZATION.
+// -----------------------------------------------------------------------------------------
+
+/**
+ * @brief   Setup image sensor & start streaming
+ *
+ * @retval  false if initialisation failed
+ */
+bool ei_camera_init(void) 
+{
+
+    if (is_initialised) return true;
+
+    #if defined(CAMERA_MODEL_ESP_EYE)
+        pinMode(13, INPUT_PULLUP);
+        pinMode(14, INPUT_PULLUP);
+    #endif
+
+    // Initialize the camera.
+    esp_err_t err = esp_camera_init(&camera_config);
+    if (err != ESP_OK) {
+      Serial.printf("Camera init failed with error 0x%x\n", err);
+      return false;
     }
-    
-    // Force Resolution & Quality.
+
     sensor_t * s = esp_camera_sensor_get();
-    if (s) {
-        s->set_framesize(s, FRAMESIZE_QVGA);    // Force 320x240
-        s->set_quality(s, 10);                   // Lower quality = better compression
-        s->set_brightness(s, 1);                 // Increase brightness slightly
-        s->set_saturation(s, 0);                 // Normal saturation
-        s->set_contrast(s, 0);                   // Normal contrast
-        s->set_special_effect(s, 0);             // No special effects
-        s->set_wb_mode(s, 0);                    // Auto White Balance
-        s->set_whitebal(s, 1);                   // Enable white balance
-        s->set_awb_gain(s, 1);                   // Enable auto white balance gain
-        s->set_exposure_ctrl(s, 1);              // Enable auto exposure
-        s->set_aec2(s, 1);                       // Enable auto exposure (DSP)
-        s->set_gain_ctrl(s, 1);                  // Enable auto gain
-        s->set_raw_gma(s, 1);                    // Enable auto gamma correction
-        s->set_lenc(s, 1);                       // Enable lens correction
-        
-        serialPrintWithDelay("\n[INFO] Camera settings applied:");
-        serialPrintWithDelay(String("Resolution: QVGA (320x240)\n"));
-        serialPrintWithDelay(String("Quality: 10\n"));
-        serialPrintWithDelay(String("Free PSRAM: ") + String(ESP.getFreePsram()) + String(" bytes\n"));
-    } else {
-        serialPrintWithDelay("[ERROR] Failed to get sensor settings!");
-        return false;
+    // initial sensors are flipped vertically and colors are a bit saturated
+    if (s->id.PID == OV3660_PID) {
+      s->set_vflip(s, 1); // flip it back
+      s->set_brightness(s, 1); // up the brightness just a bit
+      s->set_saturation(s, 0); // lower the saturation
     }
-    
-    // Test Capture.
-    serialPrintWithDelay("\nPerforming test capture...");
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (fb) {
-        serialPrintWithDelay("[INFO] Test capture successful!");
-        serialPrintWithDelay(String("Image Size: ") + String(fb->len) + String(" bytes\n"));
-        serialPrintWithDelay(String("Resolution: ") + String(fb->width) + String("x") + String(fb->height) + String("\n"));
-        serialPrintWithDelay(String("Format: ") + String(fb->format) + String(" (0=JPEG)\n"));
-        
-        // Verify Image Format.
-        if (fb->format != PIXFORMAT_JPEG) {
-            serialPrintWithDelay("[ERROR] Capture format is not JPEG!");
-            esp_camera_fb_return(fb);
-            return false;
-        }
-        
-        // Verify Resolution.
-        if (fb->width != 320 || fb->height != 240) {
-            serialPrintWithDelay(String("[ERROR] Incorrect resolution: ") + String(fb->width) + String("x") + String(fb->height) + String(" (expected 320x240)\n"));
-            esp_camera_fb_return(fb);
-            return false;
-        }
-        
-        // Return Frame Buffer.
-        esp_camera_fb_return(fb);
-    } else {
-        serialPrintWithDelay("[ERROR] Test capture failed!");
-        return false;
-    }
-    
-    serialPrintWithDelay("[SUCCESS] Camera initialization complete!");
-    serialPrintWithDelay("======================================\n");
+
+    #if defined(CAMERA_MODEL_M5STACK_WIDE)
+        s->set_vflip(s, 1);
+        s->set_hmirror(s, 1);
+    #elif defined(CAMERA_MODEL_ESP_EYE)
+        s->set_vflip(s, 1);
+        s->set_hmirror(s, 1);
+        s->set_awb_gain(s, 1);
+    #endif
+
+    is_initialised = true;
     return true;
 }
 
 // -----------------------------------------------------------------------------------------
-// Future Functions. (Old Code)
-//
-// - checkAlarmNotification()
-// - checkForTurnOnLights()
-// - checkForTurnOffLights()
-// - triggerAlarm()
-//
-// * These have not been implemented into functionality yet w/ Gadget or App *
+// CAMERA DE-INITIALIZATION.
 // -----------------------------------------------------------------------------------------
 
-bool checkAlarmNotification() 
-{
-  // Example using HTTP GET request:
-  HTTPClient http;
-  http.begin("http://" + String(GADGET_IP) + "/alarm_status");
-  int httpCode = http.GET();
+/**
+ * @brief      Stop streaming of sensor data
+ */
+void ei_camera_deinit(void) {
 
-  if (httpCode == HTTP_CODE_OK) 
-  {
-    String payload = http.getString();
+    //deinitialize the camera
+    esp_err_t err = esp_camera_deinit();
 
-    // Case for sounding the alarm.
-    if (payload == "start_alarm") 
+    if (err != ESP_OK)
     {
-      return true;
+        ei_printf("Camera deinit failed\n");
+        return;
     }
 
-    // Case for stopping the alarm.
-    else if (payload == "stop_alarm") 
-    {
-      return true;
-    }
-  }
-
-  return false;
+    is_initialised = false;
+    return;
 }
 
 // -----------------------------------------------------------------------------------------
-
-bool checkForTurnOnLights() 
-{
-  // Check for "turn_on_lights" message:
-  HTTPClient http;
-  http.begin("http://" + String(GADGET_IP) + "/light_control");
-  int httpCode = http.GET();
-
-  if (httpCode == HTTP_CODE_OK) 
-  {
-    String payload = http.getString();
-    if (payload == "turn_on_lights") 
-    {
-      return true;
-    }
-  }
-
-  return false;
-} 
-
+// CAMERA CAPTURE.
 // -----------------------------------------------------------------------------------------
 
-bool checkForTurnOffLights() 
+/**
+ * @brief      Capture, rescale and crop image
+ *
+ * @param[in]  img_width     width of output image
+ * @param[in]  img_height    height of output image
+ * @param[in]  out_buf       pointer to store output image, NULL may be used
+ *                           if ei_camera_frame_buffer is to be used for capture and resize/cropping.
+ *
+ * @retval     false if not initialised, image captured, rescaled or cropped failed
+ *
+ */
+bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) 
 {
-  // Check for "turn_off_lights" message:
-  HTTPClient http;
-  http.begin("http://" + String(GADGET_IP) + "/light_control");
-  int httpCode = http.GET();
+    bool do_resize = false;
 
-  if (httpCode == HTTP_CODE_OK) 
-  {
-    String payload = http.getString();
-    if (payload == "turn_off_lights") 
-    {
-      return true;
+    if (!is_initialised) {
+        ei_printf("ERR: Camera is not initialized\r\n");
+        return false;
     }
-  }
 
-  return false;
+    camera_fb_t *fb = esp_camera_fb_get();
+
+    if (!fb) 
+    {
+        ei_printf("Camera capture failed\n");
+        return false;
+    }
+
+   bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
+
+   esp_camera_fb_return(fb);
+
+   if(!converted){
+       ei_printf("Conversion failed\n");
+       return false;
+   }
+
+    if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS)
+        || (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
+        do_resize = true;
+    }
+
+    if (do_resize) {
+        ei::image::processing::crop_and_interpolate_rgb888(
+        out_buf,
+        EI_CAMERA_RAW_FRAME_BUFFER_COLS,
+        EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
+        out_buf,
+        img_width,
+        img_height);
+    }
+
+
+    return true;
 }
 
 // -----------------------------------------------------------------------------------------
+// CAMERA GET DATA.
+// -----------------------------------------------------------------------------------------
 
-void triggerAlarm() 
+static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
 {
-  // Trigger the alarm (e.g., sound buzzer, flash LED)
-  digitalWrite(Alarm_Pin, HIGH);
-  serialPrintWithDelay("Alarm has been sounded.");
-  digitalWrite(LEDStrip_Pin, HIGH);
-  serialPrintWithDelay("Lights turned on!");
+    // we already have a RGB888 buffer, so recalculate offset into pixel index
+    size_t pixel_ix = offset * 3;
+    size_t pixels_left = length;
+    size_t out_ptr_ix = 0;
+
+    while (pixels_left != 0) {
+        // Swap BGR to RGB here
+        // due to https://github.com/espressif/esp32-camera/issues/379
+        out_ptr[out_ptr_ix] = (snapshot_buf[pixel_ix + 2] << 16) + (snapshot_buf[pixel_ix + 1] << 8) + snapshot_buf[pixel_ix];
+
+        // go to the next pixel
+        out_ptr_ix++;
+        pixel_ix+=3;
+        pixels_left--;
+    }
+    // and done!
+    return 0;
 }
+
+#if !defined(EI_CLASSIFIER_SENSOR) || EI_CLASSIFIER_SENSOR != EI_CLASSIFIER_SENSOR_CAMERA
+#error "Invalid model for current sensor"
+#endif
 
 // -----------------------------------------------------------------------------------------
 // Handle root endpoint (/)
@@ -595,14 +665,16 @@ void setup()
     serialPrintWithDelay("Starting ESP32-CAM...");
     serialPrintWithDelay("--------------------------------");
 
-    // Initialize Camera w/ Retries.
-    bool cameraInitialized = false;
-    for (int attempt = 0; attempt < 3 && !cameraInitialized; attempt++) {
-        if (attempt > 0) {
-            serialPrintWithDelay("\nRetrying camera initialization (attempt " + String(attempt + 1) + "/3)...");
-            delay(1000);
-        }
-        cameraInitialized = initCamera();
+    // Initialize camera.
+    if (ei_camera_init() == false) 
+    {
+        cameraInitialized = false;
+        ei_printf("Failed to initialize Camera!\r\n");
+    }
+    else 
+    {
+        cameraInitialized = true;
+        ei_printf("Camera initialized\r\n");
     }
 
     if (!cameraInitialized) {
@@ -796,9 +868,84 @@ void simulatePersonDetection() {
     }
 }
 
-// *********** HARD WARE TESTING ***********
-// - Uncomment code below in checkMotionSensor() & initializeHardware() to test hardware.
-// - Comment out simulatePersonDetection() to test hardware. 
+// -----------------------------------------------------------------------------------------
+// Process Image.
+// -----------------------------------------------------------------------------------------
+
+bool processImage() {
+    // Allocate memory for the snapshot buffer
+    snapshot_buf = (uint8_t*)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
+
+    if (snapshot_buf == nullptr) 
+    {
+        ei_printf("ERR: Failed to allocate snapshot buffer!\n");
+        return;
+    }
+
+    ei::signal_t signal;
+    signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
+    signal.get_data = &ei_camera_get_data;
+
+    // Capture an image
+    if (ei_camera_capture((size_t)EI_CLASSIFIER_INPUT_WIDTH, (size_t)EI_CLASSIFIER_INPUT_HEIGHT, snapshot_buf) == false) 
+    {
+        ei_printf("Failed to capture image\r\n");
+        free(snapshot_buf);
+        return;
+    }
+
+    // Run the classifier
+    ei_impulse_result_t result = { 0 };
+    EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
+    if (err != EI_IMPULSE_OK) 
+    {
+        ei_printf("ERR: Failed to run classifier (%d)\n", err);
+        free(snapshot_buf);
+        return;
+    }
+
+    // print the predictions
+    ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n", result.timing.dsp, result.timing.classification, result.timing.anomaly);
+
+    // Process the classifier results
+    bool personDetected = false;
+
+    #if EI_CLASSIFIER_OBJECT_DETECTION == 1
+        ei_printf("Object detection bounding boxes:\r\n");
+        for (uint32_t i = 0; i < result.bounding_boxes_count; i++) 
+        {
+            ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
+            if (bb.value == 0) 
+            {
+                continue;
+            }
+            ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+                    bb.label,
+                    bb.value,
+                    bb.x,
+                    bb.y,
+                    bb.width,
+                    bb.height);
+            personDetected = true;
+        }
+
+        // Print the prediction results (classification)
+    #else
+        ei_printf("Predictions:\r\n");
+        for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) 
+        {
+            ei_printf("  %s: ", ei_classifier_inferencing_categories[i]);
+            ei_printf("%.5f\r\n", result.classification[i].value);
+        }
+    #endif
+
+    free(snapshot_buf);
+
+    delay(100); // Small Delay.
+
+    return personDetected;
+}
+
 
 // -----------------------------------------------------------------------------------------
 // Check Motion Sensor.
@@ -807,7 +954,6 @@ void simulatePersonDetection() {
 void checkMotionSensor() {
     // Check motion sensor at regular intervals.
 
-    /*
     if (millis() - lastMotionCheck >= MOTION_CHECK_INTERVAL) {
         lastMotionCheck = millis();
         
@@ -816,40 +962,36 @@ void checkMotionSensor() {
         if (pirValue == HIGH) {
             Serial.println("\n[MOTION] PIR sensor detected motion");
             motionDetected = true;
+            personDetected = false;
             
-            // Capture image.
-            camera_fb_t *fb = esp_camera_fb_get();
-            if (!fb) {
-                Serial.println("[ERROR] Camera capture failed");
+            if (processImage()) {
+                notifyGadget();
+
+                Serial.println("[INFO] Person detected in the image.");
+                Serial.println("[INFO] Turning on lights...");
+
+                digitalWrite(LEDStrip_Pin, HIGH);
+                digitalWrite(Alarm_Pin, HIGH);
+
+                Serial.println("[INFO] Triggering alarm...");
+                Serial.println("[INFO] Sending notification to gadget...");
+
+                delay(5000);
+
+                digitalWrite(LEDStrip_Pin, LOW);
+                digitalWrite(Alarm_Pin, LOW);
+
+                Serial.println("[INFO] Alarm turned off.");
+                Serial.println("[INFO] Lights turned off.");
+
+                delay(2000);
             } else {
-                Serial.println("Image captured successfully");
-                Serial.printf("Image size: %d bytes\n", fb->len);
-                
-                // Process image for person detection.
-                if (processImage(fb)) {
-                    Serial.println("[DETECTION] Person detected in image");
-                    
-                    // Notify gadget.
-                    notifyGadget();
-                    
-                    // Turn on lights if it's dark (you can add light sensor logic here).
-                    if (!lightsActive) {
-                        digitalWrite(LEDStrip_Pin, HIGH);
-                        digitalWrite(whitePin, HIGH);
-                        lightsActive = true;
-                    }
-                } else {
-                    Serial.println("No person detected in image");
-                }
-                
-                // Return the frame buffer
-                esp_camera_fb_return(fb);
+                Serial.println("[INFO] No person detected in the image.");
             }
         } else {
             motionDetected = false;
         }
     }
-    */
 }
 
 // -----------------------------------------------------------------------------------------
@@ -858,24 +1000,24 @@ void checkMotionSensor() {
 
 void initializeHardware() {
     serialPrintWithDelay("\n========== INITIALIZING HARDWARE ==========");
-    /*
+
     // Initialize input pins.
     pinMode(PassiveIR_Pin, INPUT);
-    pinMode(ActiveIR_Pin, INPUT);
-    pinMode(Tamper_Pin, INPUT_PULLUP);
+    pinMode(ActiveIR1_Pin, INPUT);
+    pinMode(ChipEnable_Pin, INPUT_PULLUP);
     
     // Initialize output pins.
     pinMode(LEDStrip_Pin, OUTPUT);
     pinMode(Alarm_Pin, OUTPUT);
     pinMode(RedLED_Pin, OUTPUT);
-    pinMode(whitePin, OUTPUT);
+    pinMode(WhiteLED_Pin, OUTPUT);
     
     // Set initial states.
     digitalWrite(LEDStrip_Pin, LOW);
     digitalWrite(Alarm_Pin, LOW);
     digitalWrite(RedLED_Pin, LOW);
-    digitalWrite(whitePin, LOW);
-    */
+    digitalWrite(WhiteLED_Pin, LOW);
+
     // Print notification.
     serialPrintWithDelay("PIR sensors initialized");
     serialPrintWithDelay("Output devices initialized");
@@ -890,7 +1032,9 @@ void initializeHardware() {
 
 void loop()
 {
-    // 1. Check Wi-Fi Connection & Reconnect if Disconnected.
+    // -----
+
+    // 1. Check Wi-Fi Connection & Reconnect If Disconnected.
     static unsigned long lastWiFiCheck = 0;
     const unsigned long WIFI_CHECK_INTERVAL = 10000; // Check every 10 seconds
     
@@ -898,6 +1042,8 @@ void loop()
         lastWiFiCheck = millis();
         checkWiFiConnection();
     }
+    
+    // -----
 
     // 2. Handle Incoming HTTP Requests w/ Status Indicator.
     static unsigned long lastRequestTime = 0;
@@ -910,7 +1056,7 @@ void loop()
             digitalWrite(RedLED_Pin, HIGH); // Visual indicator that we're handling a request
         }
     }
-    
+
     // Handle Incoming Requests.
     server.handleClient();
     
@@ -920,9 +1066,13 @@ void loop()
         digitalWrite(RedLED_Pin, LOW);
     }
     
+    // -----
+
     // 3. Check Motion Sensor at Regular Intervals.
     checkMotionSensor();
     
+    // -----
+
     // 4. Check Heartbeat.
     if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) {
         lastHeartbeat = millis();
@@ -934,6 +1084,8 @@ void loop()
         }
     }
     
+    // -----
+
     // 5. Handle Alarm State.
     if (alarmActive) {
         // Toggle alarm for audible effect and LED for visual feedback.
@@ -942,14 +1094,13 @@ void loop()
             lastAlarmToggle = millis();
             digitalWrite(Alarm_Pin, !digitalRead(Alarm_Pin));
             digitalWrite(RedLED_Pin, !digitalRead(RedLED_Pin));
-            // Also flash the white LED for additional visibility
-            digitalWrite(whiteLED_Pin, !digitalRead(whiteLED_Pin));
+            digitalWrite(WhiteLED_Pin, !digitalRead(WhiteLED_Pin));
         }
     }
     
     // Uncomment this section to test person detection notifications with the mobile app
     // 6. Test person detection simulation
-    simulatePersonDetection();
+    // simulatePersonDetection();
     
     
     // Small delay to prevent overwhelming the CPU
