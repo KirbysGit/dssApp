@@ -35,14 +35,9 @@
 
 WebServer server(80);
 
-// PLEASE FILL IN PASSWORD AND WIFI RESTRICTIONS.
-// MUST USE 2.4GHz wifi band.
 const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
 const char* WIFI_PASS = "goodlife";
-
-// Global variable for Gadget & mobile app.
-const char* GADGET_IP = "http://192.168.8.206";
-const char* APP_IP = "x";
+const char* GADGET_IP = "192.168.8.151";
 
 
 // Active IR sensor pin #1.
@@ -600,9 +595,28 @@ void setup()
 
     // Configure wifi connection.
     // Disable wifi persistence.
-    WiFi.persistent(false);
     WiFi.mode(WIFI_STA);  // Wifi to station mode.
     WiFi.begin(WIFI_SSID, WIFI_PASS); // Connect to the wifi network.
+
+    // Wait for Wi-Fi Connection.
+    int attempts = 0;
+    serialPrintWithDelay("\nConnecting to WiFi", false);
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {  // 20-second timeout
+        delay(1000);
+        Serial.print(".");
+        Serial.flush();
+        attempts++;
+    }
+    serialPrintWithDelay("");  // New line after dots
+
+    if (WiFi.status() == WL_CONNECTED) {
+        serialPrintWithDelay("\nWi-Fi connected successfully!");
+        serialPrintWithDelay("ESP32-CAM IP Address: " + WiFi.localIP().toString());
+    } else {
+        serialPrintWithDelay("\n[ERROR] Wi-Fi connection failed! Restarting...");
+        delay(5000);
+        ESP.restart();
+    }
 
 // Set up HTTP server endpoints with minimal logging
     server.on("/", HTTP_GET, handleRoot);
@@ -613,35 +627,19 @@ void setup()
     server.on("/turn_off_lights", HTTP_GET, handleTurnOffLights);
     server.on("/heartbeat", HTTP_GET, handleHeartbeat);
 
-    // Wifi attempt tracker, ensure fast connection.
-    int attempts = 0;
+    server.onNotFound([]() {
+        serialPrintWithDelay("404: " + server.uri());
+    });
+    
+    // Start HTTP Server.
+    server.begin();
+    serialPrintWithDelay("HTTP server started");
 
-    // Wait for wifi to connect.
-    while (WiFi.status() != WL_CONNECTED && attempts < 30) 
-    {
-        Serial.print("WiFi Status: ");
-        Serial.println(WiFi.status());
-        Serial.println("Connecting ESP32-CAM to wifi...");
-        delay(2000);
-        attempts++;
-    }
-
-    // Wifi connection success.
     if (WiFi.status() == WL_CONNECTED) {
         serialPrintWithDelay("\nRegistering with gadget...");
         registerWithGadget();
     }
     
-    // Wifi connection fail.
-    else 
-    {
-        Serial.println("Failed to connect to WiFi. Restarting...");
-        ESP.restart();  // Restart ESP32 if connection fails
-    }
-
-    Serial.print("http://");
-    Serial.println(WiFi.localIP());
-
     ei_printf("\nWaiting for Passive IR trigger to start image processing...\n");
 }
 
