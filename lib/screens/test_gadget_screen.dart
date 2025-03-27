@@ -27,7 +27,7 @@ class _TestGadgetScreenState extends State<TestGadgetScreen> {
       debugPrint('Command: $commandName');
       debugPrint('Endpoint: $endpoint');
       
-      final uri = Uri.parse('http://192.168.8.151$endpoint');
+      final uri = Uri.parse('http://192.168.8.225$endpoint');
       debugPrint('Full URL: $uri');
 
       final response = await http.get(uri).timeout(
@@ -73,7 +73,7 @@ class _TestGadgetScreenState extends State<TestGadgetScreen> {
                         'Please check:\n'
                         '1. Gadget is powered on\n'
                         '2. Connected to the same network\n'
-                        '3. IP address is correct (192.168.8.151)\n'
+                        '3. IP address is correct (192.168.8.225)\n'
                         '4. No firewall blocking the connection'
                       ),
                     ),

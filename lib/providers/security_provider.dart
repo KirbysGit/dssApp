@@ -66,7 +66,7 @@ class SecurityProvider with ChangeNotifier {
 }
 
 final securityServiceProvider = Provider((ref) => SecurityService(
-  gadgetIp: '192.168.8.151',
+  gadgetIp: '192.168.8.225',
 ));
 
 final securityStatusProvider = StateNotifierProvider<SecurityStatusNotifier, SecurityState>((ref) {
@@ -109,7 +109,7 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
 
   Future<void> checkStatus() async {
     try {
-      final gadgetIp = '192.168.8.151';
+      final gadgetIp = '192.168.8.225';
       
       final statusResponse = await http.get(
         Uri.parse('http://$gadgetIp/person_status'),

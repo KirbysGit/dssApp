@@ -14,6 +14,7 @@
 // Jaxon Topel   1/13/2025       Architect Communication Network for Node/Gadget
 // Jaxon Topel   1/17/2025       Communication Network debugging, data integrity checks, IP alg debugging
 // Jaxon Topel   1/20/2025       Sending image from Node to Gadget
+// Jaxon Topel   3/1/2025        Testing and Revision phase 1 integration
 //
 // Note(1): ChatGPT aided in the development of this code.
 // Note(2): To run this code in arduino ide, please use , set baud
@@ -24,7 +25,6 @@
 // Imports.
 #include <WebServer.h>
 #include <WiFi.h>
-#include <ObjectDetection.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
@@ -57,41 +57,24 @@ WebServer server(80);
 // GPIO Pins --> Active Low.
 
 // Trigger Alarm.
-const byte TRIGGER_ALARM_PIN = GPIO_NUM_47;
+const int TRIGGER_ALARM_PIN = 40;
 
 // Turn On Lights.
-const byte TURN_ON_LIGHTS_PIN = GPIO_NUM_48;
+const int TURN_ON_LIGHTS_PIN = 41;
 
 // Turn Off Alarm.
-const byte TURN_OFF_ALARM_PIN = GPIO_NUM_25;
+const int TURN_OFF_ALARM_PIN = 42;
+
+const int LED1 = 16;
+const int LED2 = 17;
+const int LED3 = 18;
 
 // Turn Off Gadget.
-const byte TURN_OFF_GADGET_PIN = GPIO_NUM_0;
-
-// LED.
-const int LED = 21;
+//const byte TURN_OFF_GADGET_PIN = GPIO_NUM_0;
 
 // Switch debounce variables.
 unsigned long lastSwitchPressTime = 0;
 const unsigned long DEBOUNCE_DELAY = 200; // 200ms debounce time
-
-// PSRAM buffer.
-// uint8_t* psramBuffer = nullptr;
-// const int PSRAM_BUF_SIZE = 500 * 1024; // Adjust as needed
-
-// For future use to scale message handling.
-// enum RequestType {
-//   REQUEST_TYPE_IMAGE_UPLOAD,
-//   REQUEST_TYPE_GET_DATA,
-//   REQUEST_TYPE_CONTROL_DEVICE,
-//   REQUEST_TYPE_TRIGGER_ALARM,
-//   REQUEST_TYPE_GET_STATUS
-// };
-// const IPAddress allowedIPs[] = {
-//   IPAddress(192, 168, 1, 100),
-//   IPAddress(192, 168, 1, 101),
-//   // ... add other allowed IP addresses
-// };
 
 // -----------------------------------------------------------------------------------------
 // Camera Node Struct.
@@ -124,7 +107,6 @@ void handlePersonDetected() {
   Serial.println("\n========== PERSON DETECTION NOTIFICATION ==========");
   Serial.println("Time: " + String(millis()));
   Serial.println("Sender IP: " + server.client().remoteIP().toString());
-    
   // Print raw POST data.
   String postBody = server.arg("plain");
   Serial.println("\nReceived POST data: [" + postBody + "]");
@@ -185,6 +167,9 @@ void handlePersonDetected() {
 
   // Set Person Detected Flag.
   personDetected = true;
+
+
+
     
   // Create Response JSON with Camera Information.
   String response = "{";
@@ -199,9 +184,9 @@ void handlePersonDetected() {
   server.send(200, "application/json", response);
     
   // Blink LED to Indicate Detection.
-  digitalWrite(LED, HIGH);
-  delay(100);
-  digitalWrite(LED, LOW);
+  //digitalWrite(LED1, HIGH);
+  //delay(100);
+  //digitalWrite(LED1, LOW);
     
   Serial.println("==============================================\n");
 }
@@ -402,6 +387,7 @@ void checkSwitches() {
           }
 
         // Check turn off gadget switch.
+        /*
         if (digitalRead(TURN_OFF_GADGET_PIN) == LOW) {
 
             // Print notification.
@@ -412,22 +398,22 @@ void checkSwitches() {
             delay(1000);
             ESP.restart();
         }
+        */
     }
 }
 
 // -----------------------------------------------------------------------------------------
 // Setup function that initializes ESP32-CAM.
 // -----------------------------------------------------------------------------------------
-
 void setup()
 {
   // Initialize pins.
-  pinMode(LED, OUTPUT);
+  //pinMode(LED1, OUTPUT);
   pinMode(TRIGGER_ALARM_PIN, INPUT_PULLUP);
   pinMode(TURN_ON_LIGHTS_PIN, INPUT_PULLUP);
   pinMode(TURN_OFF_ALARM_PIN, INPUT_PULLUP);
-  pinMode(TURN_OFF_GADGET_PIN, INPUT_PULLUP);
-  digitalWrite(LED, LOW);
+  // pinMode(TURN_OFF_GADGET_PIN, INPUT_PULLUP);
+  //digitalWrite(LED1, LOW);
 
   // Start serial communication.
   Serial.begin(115200);
@@ -447,14 +433,14 @@ void setup()
       attempts++;
         
       // Blink LED to show we're trying to connect.
-      digitalWrite(LED, !digitalRead(LED));
+      //digitalWrite(LED1, !digitalRead(LED1));
   }
 
   // Wifi connection result.
   if (WiFi.status() == WL_CONNECTED) {
 
       // Turn LED on when connected.  
-      digitalWrite(LED, HIGH);
+      //digitalWrite(LED1, HIGH);
 
       // Print connection success.
       Serial.println("\n----------------------------");
@@ -495,7 +481,7 @@ void setup()
       Serial.println("--------------------------------");
   } else {
       // Turn LED off if failed.
-      digitalWrite(LED, LOW);
+      //digitalWrite(LED, LOW);
 
       // Print error.
       Serial.println("\n[ERROR] Failed to connect to WiFi after 30 attempts.");
@@ -520,7 +506,7 @@ void loop()
       lastWiFiCheck = millis();
       if (WiFi.status() != WL_CONNECTED) {
           Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
-          digitalWrite(LED, LOW);
+          //digitalWrite(LED, LOW);
 
           // Disconnect and reconnect.
           WiFi.disconnect();
@@ -534,13 +520,13 @@ void loop()
               delay(1000);
               Serial.print(".");
               attempts++;
-              digitalWrite(LED, !digitalRead(LED));
+              //digitalWrite(LED, !digitalRead(LED));
           }
 
           // Reconnect success.
           if (WiFi.status() == WL_CONNECTED) {
               Serial.println("\nWi-Fi reconnected successfully!");
-              digitalWrite(LED, HIGH);
+              //digitalWrite(LED, HIGH);
           } else {
               // Print error and restart.
               Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
@@ -559,7 +545,7 @@ void loop()
   // Blink LED occasionally to show the device is running.
   static unsigned long lastBlink = 0;
   if (millis() - lastBlink > 2000 && WiFi.status() == WL_CONNECTED) {
-      digitalWrite(LED, !digitalRead(LED));
+      //digitalWrite(LED, !digitalRead(LED));
       lastBlink = millis();
   }
 }

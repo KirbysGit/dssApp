@@ -542,10 +542,10 @@ class StatusCard extends StatelessWidget {
   Future<void> _sendGadgetCommand(BuildContext context, String endpoint) async {
     debugPrint('\n========== SENDING GADGET COMMAND ==========');
     debugPrint('Endpoint: $endpoint');
-    debugPrint('Full URL: http://192.168.8.131$endpoint');
+    debugPrint('Full URL: http://192.168.8.225$endpoint');
     
     try {
-        final uri = Uri.parse('http://192.168.8.131$endpoint');
+        final uri = Uri.parse('http://192.168.8.225$endpoint');
         debugPrint('Sending HTTP GET request...');
         
         final response = await http.get(uri).timeout(
