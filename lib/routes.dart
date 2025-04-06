@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'screens/welcome_screen.dart';
-import 'screens/home_screen.dart';
 import 'screens/about_screen.dart';
 
 class AppRoutes {
@@ -13,7 +12,6 @@ class AppRoutes {
 
   static Map<String, WidgetBuilder> get routes => {
     welcome: (context) => const WelcomeScreen(),
-    home: (context) => const HomeScreen(),
     '/about': (context) => const AboutScreen(),
   };
 } 

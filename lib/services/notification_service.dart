@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/security_provider.dart';
 import 'dart:typed_data';
 import 'camera_service.dart';
 
@@ -11,6 +13,7 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
   final CameraService _cameraService = CameraService();
+  late ProviderContainer _container;
   Timer? _pollTimer;
   final _notificationStreamController = StreamController<NotificationData>.broadcast();
   
@@ -20,7 +23,8 @@ class NotificationService {
   final List<NotificationData> _notificationQueue = [];
   static const int maxQueueSize = 5;  // Maximum number of notifications to keep
 
-  Future<void> initialize() async {
+  Future<void> initialize(ProviderContainer container) async {
+    _container = container;
     const initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
     
@@ -44,8 +48,9 @@ class NotificationService {
 
   Future<void> _checkForPersonDetection() async {
     try {
+      final gadgetIp = _container.read(gadgetIpProvider);
       print('Checking for person detection...');  // Debug output
-      final response = await _cameraService.checkPersonDetection();
+      final response = await _cameraService.checkPersonDetection(gadgetIp);
       print('Person detection response: $response');  // Debug output
       
       if (response != null) {
@@ -55,7 +60,7 @@ class NotificationService {
         
         if (isPersonDetected) {
           print('Fetching latest image...');  // Debug output
-          final image = await _cameraService.getLatestImage();
+          final image = await _cameraService.getLatestImage(gadgetIp);
           print('Image fetched: ${image != null ? '${image.length} bytes' : 'null'}');  // Debug output
           await _showNotification(image);
         }

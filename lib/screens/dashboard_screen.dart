@@ -355,17 +355,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                         height: 40,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'SecureScape Dashboard',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeScreen ? 28 : 24,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'SF Pro Display',
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'SecureScape',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: isLargeScreen ? 24 : 20,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'SF Pro Display',
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 4),
+                    // Add IP Configuration Button
+                    IconButton(
+                      onPressed: () => _showIpConfigDialog(context),
+                      icon: const Icon(Icons.settings_ethernet, color: Colors.white),
+                      tooltip: 'Configure Gadget IP',
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(),
+                    ),
                     if (securityState.isLoading)
                       const SizedBox(
                         height: 24,
@@ -379,6 +390,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                       IconButton(
                         onPressed: () => ref.read(securityStatusProvider.notifier).checkStatus(),
                         icon: const Icon(Icons.refresh, color: Colors.white),
+                        padding: const EdgeInsets.all(8),
+                        constraints: const BoxConstraints(),
                       ),
                   ],
                 ),
@@ -521,9 +534,81 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       ),
     );
   }
+
+  Future<void> _showIpConfigDialog(BuildContext context) async {
+    final currentIp = ref.read(gadgetIpProvider);
+    final TextEditingController ipController = TextEditingController(text: currentIp);
+
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Configure Gadget IP'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ipController,
+              decoration: const InputDecoration(
+                labelText: 'IP Address',
+                hintText: '192.168.8.225',
+                helperText: 'Enter the IP address of your SecureScape gadget',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newIp = ipController.text.trim();
+              if (_isValidIpAddress(newIp)) {
+                ref.read(gadgetIpProvider.notifier).state = newIp;
+                Navigator.pop(context);
+                // Show confirmation
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Gadget IP updated to: $newIp'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid IP address'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isValidIpAddress(String ip) {
+    if (ip.isEmpty) return false;
+    
+    final parts = ip.split('.');
+    if (parts.length != 4) return false;
+    
+    return parts.every((part) {
+      try {
+        final number = int.parse(part);
+        return number >= 0 && number <= 255;
+      } catch (e) {
+        return false;
+      }
+    });
+  }
 }
 
-class StatusCard extends StatelessWidget {
+class StatusCard extends ConsumerWidget {
   final SecurityState status;
   final DateFormat dateFormatter;
   final String? activeCameraName;
@@ -539,13 +624,15 @@ class StatusCard extends StatelessWidget {
     required this.onAlarmOff,
   }) : super(key: key);
 
-  Future<void> _sendGadgetCommand(BuildContext context, String endpoint) async {
+  Future<void> _sendGadgetCommand(BuildContext context, WidgetRef ref, String endpoint) async {
     debugPrint('\n========== SENDING GADGET COMMAND ==========');
     debugPrint('Endpoint: $endpoint');
-    debugPrint('Full URL: http://192.168.8.225$endpoint');
     
+    final gadgetIp = ref.read(gadgetIpProvider);
+    final uri = Uri.parse('http://$gadgetIp$endpoint');
+    debugPrint('Full URL: $uri');
+
     try {
-        final uri = Uri.parse('http://192.168.8.225$endpoint');
         debugPrint('Sending HTTP GET request...');
         
         final response = await http.get(uri).timeout(
@@ -607,11 +694,12 @@ class StatusCard extends StatelessWidget {
                                     content: SingleChildScrollView(
                                         child: Text(
                                             'Endpoint: $endpoint\n'
+                                            'IP: $gadgetIp\n'
                                             'Error: $e\n\n'
                                             'Please check:\n'
                                             '1. Gadget is powered on\n'
                                             '2. Connected to the same network\n'
-                                            '3. IP address is correct (192.168.8.151)\n'
+                                            '3. IP address is correct ($gadgetIp)\n'
                                             '4. No firewall blocking the connection'
                                         ),
                                     ),
@@ -634,7 +722,7 @@ class StatusCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.15),
@@ -659,7 +747,7 @@ class StatusCard extends StatelessWidget {
                 // Status Section
                 Row(
                   children: [
-                    _buildStatusIcon(),
+                    _buildStatusIcon(ref),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -690,27 +778,9 @@ class StatusCard extends StatelessWidget {
                     alignment: WrapAlignment.center,
                     children: [
                       if (status.personDetected)
-                        _buildControlButton(
-                          context: context,
-                          endpoint: '/turn_off_alarm',
-                          icon: Icons.notifications_off,
-                          label: 'Stop Alarm',
-                          color: Colors.red.withOpacity(0.8),
-                        ),
-                      _buildControlButton(
-                        context: context,
-                        endpoint: '/trigger_alarm',
-                        icon: Icons.warning,
-                        label: 'Trigger Alarm',
-                        color: AppTheme.pineGreen.withOpacity(0.8),
-                      ),
-                      _buildControlButton(
-                        context: context,
-                        endpoint: '/turn_on_lights',
-                        icon: Icons.lightbulb,
-                        label: 'Toggle Lights',
-                        color: AppTheme.pineGreen.withOpacity(0.8),
-                      ),
+                        _buildControlButton(ref, '/turn_off_alarm'),
+                      _buildControlButton(ref, '/trigger_alarm'),
+                      _buildControlButton(ref, '/turn_on_lights'),
                     ],
                   ),
                 ),
@@ -722,43 +792,38 @@ class StatusCard extends StatelessWidget {
     );
   }
 
-  Widget _buildControlButton({
-    required BuildContext context,
-    required String endpoint,
-    required IconData icon,
-    required String label,
-    required Color color,
-  }) {
-    return SizedBox(
-      height: 40,
-      child: ElevatedButton.icon(
-        onPressed: () {
-            debugPrint('\n========== BUTTON PRESSED ==========');
-            debugPrint('Button: $label');
-            debugPrint('Endpoint: $endpoint');
-            _sendGadgetCommand(context, endpoint);
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 8,
+  Widget _buildControlButton(WidgetRef ref, String endpoint) {
+    return Builder(
+      builder: (context) => SizedBox(
+        height: 40,
+        child: ElevatedButton.icon(
+          onPressed: () {
+              debugPrint('\n========== BUTTON PRESSED ==========');
+              debugPrint('Button: $endpoint');
+              _sendGadgetCommand(context, ref, endpoint);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.pineGreen.withOpacity(0.8),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
           ),
-        ),
-        icon: Icon(icon, size: 20),
-        label: Text(
-          label,
-          style: TextStyle(
-            fontSize: isLargeScreen ? 14 : 13,
-            fontFamily: 'SF Pro Text',
+          icon: const Icon(Icons.lightbulb, size: 20),
+          label: Text(
+            endpoint.split('/').last,
+            style: TextStyle(
+              fontSize: isLargeScreen ? 14 : 13,
+              fontFamily: 'SF Pro Text',
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStatusIcon() {
+  Widget _buildStatusIcon(WidgetRef ref) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.8, end: 1.0),
       duration: const Duration(milliseconds: 1500),

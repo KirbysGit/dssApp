@@ -10,61 +10,6 @@ import '../models/detection_log.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-class SecurityProvider with ChangeNotifier {
-  final _service = MockSecurityService();
-  final _notificationService = NotificationService();
-  List<SecurityDevice> _devices = [];
-  bool _isSystemArmed = false;
-  bool _isLoading = false;
-  String? _error;
-  bool _personDetected = false;
-
-  SecurityProvider() {
-    _initializeServices();
-  }
-
-  Future<void> _initializeServices() async {
-    await _notificationService.initialize();
-    _notificationService.startPolling();
-  }
-
-  bool get isSystemArmed => _isSystemArmed;
-  List<SecurityDevice> get devices => List.unmodifiable(_devices);
-  bool get isLoading => _isLoading;
-  String? get error => _error;
-  bool get personDetected => _personDetected;
-
-  void toggleSystem() {
-    _isSystemArmed = !_isSystemArmed;
-    notifyListeners();
-  }
-
-  Future<void> refreshDevices() async {
-    _isLoading = true;
-    _error = null;
-    notifyListeners();
-
-    try {
-      _devices = await _service.getDevices();
-      for (var device in _devices) {
-        final isOnline = await _service.checkDeviceStatus(device.id);
-        device.isOnline = isOnline;
-      }
-    } catch (e) {
-      _error = e.toString();
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  @override
-  void dispose() {
-    _notificationService.stopPolling();
-    super.dispose();
-  }
-}
-
 final securityServiceProvider = Provider((ref) => SecurityService(
   gadgetIp: '192.168.8.225',
 ));
@@ -77,18 +22,20 @@ final detectionLogsProvider = StateNotifierProvider<DetectionLogsNotifier, List<
   return DetectionLogsNotifier();
 });
 
+final gadgetIpProvider = StateProvider<String>((ref) => '192.168.8.225');
+
 class SecurityStatusNotifier extends StateNotifier<SecurityState> {
-  Timer? _pollingTimer;
+  final NotificationService _notificationService = NotificationService();
+  Timer? _statusCheckTimer;
   final Ref _ref;
 
-  SecurityStatusNotifier(this._ref) : super(SecurityState(
-    isLoading: false,
-    personDetected: false,
-    lastDetectionTime: null,
-    cameras: [],
-    shouldShowNotification: false,
-  )) {
-    _startPolling();
+  SecurityStatusNotifier(this._ref) : super(SecurityState.initial()) {
+    _initializeServices();
+  }
+
+  Future<void> _initializeServices() async {
+    _notificationService.initialize(_ref.container);
+    _notificationService.startPolling();
   }
 
   void _startPolling() {
@@ -96,14 +43,14 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
     checkStatus();
     
     // Poll every 2 seconds
-    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _statusCheckTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       checkStatus();
     });
   }
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
+    _statusCheckTimer?.cancel();
     super.dispose();
   }
 

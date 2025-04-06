@@ -4,12 +4,10 @@ import 'dart:convert';
 import '../config/device_config.dart';
 
 class CameraService {
-  static const String baseUrl = 'http://172.20.10.8';  // Correct gadget IP
-
-  Future<Map<String, dynamic>?> checkPersonDetection() async {
+  Future<Map<String, dynamic>?> checkPersonDetection(String gadgetIp) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/person_status'),
+        Uri.parse('http://$gadgetIp/person_status'),
       ).timeout(const Duration(seconds: 5));
       
       if (response.statusCode == 200) {
@@ -24,10 +22,10 @@ class CameraService {
     }
   }
 
-  Future<Uint8List?> getLatestImage() async {
+  Future<Uint8List?> getLatestImage(String gadgetIp) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/latest_image'));
-      print('Requesting from: $baseUrl/latest_image'); // This will help us debug
+      final response = await http.get(Uri.parse('http://$gadgetIp/latest_image'));
+      print('Requesting from: http://$gadgetIp/latest_image'); // This will help us debug
       
       if (response.statusCode == 200) {
         return response.bodyBytes;
@@ -39,9 +37,9 @@ class CameraService {
     }
   }
 
-  Future<Uint8List?> getImageFromCamera(String ipAddress) async {
+  Future<Uint8List?> getImageFromCamera(String gadgetIp, String cameraIp) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/camera/$ipAddress/image'));
+      final response = await http.get(Uri.parse('http://$gadgetIp/camera/$cameraIp/image'));
       if (response.statusCode == 200) {
         return response.bodyBytes;
       }
@@ -52,10 +50,10 @@ class CameraService {
     }
   }
 
-  Future<Uint8List?> captureImage() async {
+  Future<Uint8List?> captureImage({required String gadgetIp}) async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/capture'));
-      print('Capturing image from: $baseUrl/capture');
+      final response = await http.get(Uri.parse('http://$gadgetIp/capture'));
+      print('Capturing image from: http://$gadgetIp/capture');
       
       if (response.statusCode == 200) {
         return response.bodyBytes;

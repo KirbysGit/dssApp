@@ -2,19 +2,21 @@ import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/security_provider.dart';
 import '../theme/app_theme.dart';
 import './dashboard_screen.dart';
 import './logs_screen.dart';
 import './cameras_screen.dart';
 
-class TestGadgetScreen extends StatefulWidget {
+class TestGadgetScreen extends ConsumerStatefulWidget {
   const TestGadgetScreen({Key? key}) : super(key: key);
 
   @override
-  State<TestGadgetScreen> createState() => _TestGadgetScreenState();
+  ConsumerState<TestGadgetScreen> createState() => _TestGadgetScreenState();
 }
 
-class _TestGadgetScreenState extends State<TestGadgetScreen> {
+class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
   bool _isLoading = false;
 
   Future<void> _sendTestCommand(String endpoint, String commandName) async {
@@ -27,7 +29,8 @@ class _TestGadgetScreenState extends State<TestGadgetScreen> {
       debugPrint('Command: $commandName');
       debugPrint('Endpoint: $endpoint');
       
-      final uri = Uri.parse('http://192.168.8.225$endpoint');
+      final gadgetIp = ref.read(gadgetIpProvider);
+      final uri = Uri.parse('http://$gadgetIp$endpoint');
       debugPrint('Full URL: $uri');
 
       final response = await http.get(uri).timeout(
@@ -55,6 +58,7 @@ class _TestGadgetScreenState extends State<TestGadgetScreen> {
     } catch (e) {
       debugPrint('Error: $e');
       if (mounted) {
+        final gadgetIp = ref.read(gadgetIpProvider);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to send $commandName: $e'),
@@ -73,7 +77,7 @@ class _TestGadgetScreenState extends State<TestGadgetScreen> {
                         'Please check:\n'
                         '1. Gadget is powered on\n'
                         '2. Connected to the same network\n'
-                        '3. IP address is correct (192.168.8.225)\n'
+                        '3. IP address is correct ($gadgetIp)\n'
                         '4. No firewall blocking the connection'
                       ),
                     ),
