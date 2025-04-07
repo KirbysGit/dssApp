@@ -95,8 +95,8 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
            lastDetectionTime != state.lastDetectionTime);
 
         debugPrint('Person detected: $personDetected, Was detected before: $wasPersonDetectedBefore');
-        debugPrint('Last detection time: $lastDetectionTime, Current time: ${state.lastDetectionTime}');
-        debugPrint('Should show notification: $shouldNotify');
+        /// debugPrint('Last detection time: $lastDetectionTime, Current time: ${state.lastDetectionTime}');
+        /// debugPrint('Should show notification: $shouldNotify');
 
         // If this is a new detection, create a log entry and start the reset timer
         if (shouldNotify && cameras.isNotEmpty) {
@@ -206,6 +206,7 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
 
 class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
   static const int maxStoredImages = 10;  // Maximum number of stored images
+  static const int maxStoredLogs = 20;   // Maximum number of stored logs
   final ImageStorageService _imageStorage = ImageStorageService();
   
   DetectionLogsNotifier() : super([]);
@@ -218,6 +219,15 @@ class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
   }
 
   void addDetectionLog(DetectionLog log) async {
+    // If we've reached the max logs limit, remove the oldest log
+    if (state.length >= maxStoredLogs) {
+      final oldestLog = state.last;
+      if (oldestLog.imagePath != null) {
+        await _imageStorage.deleteImage(oldestLog.imagePath!);
+      }
+      state = state.sublist(0, state.length - 1);
+    }
+
     // Count how many logs have image paths
     final logsWithImages = state.where((l) => l.imagePath != null).length;
     
@@ -250,7 +260,8 @@ class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
         .toList();
     await _imageStorage.cleanupOldImages(activePaths);
     
-    _saveLogsToStorage();
+    debugPrint('Saving ${state.length} logs to storage');
+    debugPrint('Logs with images: ${state.where((l) => l.imagePath != null).length}');
   }
 
   Future<DetectionLog> getLogWithImage(String logId) async {
@@ -264,13 +275,6 @@ class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
     return log;
   }
 
-  Future<void> _saveLogsToStorage() async {
-    // TODO: Implement persistent storage
-    // For now, just log the save operation
-    debugPrint('Saving ${state.length} logs to storage');
-    debugPrint('Logs with images: ${state.where((l) => l.imagePath != null).length}');
-  }
-
   void acknowledgeLog(String logId) {
     state = [
       for (final log in state)
@@ -279,7 +283,6 @@ class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
         else
           log,
     ];
-    _saveLogsToStorage();
   }
 
   void clearLogs() async {
@@ -290,6 +293,5 @@ class DetectionLogsNotifier extends StateNotifier<List<DetectionLog>> {
       }
     }
     state = [];
-    _saveLogsToStorage();
   }
 }

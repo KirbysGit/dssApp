@@ -815,6 +815,28 @@ void loop()
       if (personDetected) 
       {
           lastDetectionTime = currentTime;  // Update last detection time
+          
+          // Capture image immediately after detection
+          camera_fb_t *fb = esp_camera_fb_get();
+          if (!fb) {
+              Serial.println("[ERROR] Camera capture failed");
+              return;
+          }
+
+          // Store the image temporarily
+          size_t _jpg_buf_len = 0;
+          uint8_t *_jpg_buf = NULL;
+          if (frame2jpg(fb->buf, fb->len, fb->width, fb->height, fb->format, 80, &_jpg_buf, &_jpg_buf_len)) {
+              Serial.println("[INFO] JPEG conversion successful");
+          } else {
+              Serial.println("[ERROR] JPEG conversion failed");
+              esp_camera_fb_return(fb);
+              return;
+          }
+          
+          esp_camera_fb_return(fb);
+
+          // Now notify gadget with the captured image
           notifyGadget();
 
           Serial.println("[INFO] Person detected in the image.");
@@ -833,6 +855,11 @@ void loop()
 
           Serial.println("[INFO] Alarm turned off.");
           Serial.println("[INFO] Lights turned off.");
+
+          // Clean up
+          if (_jpg_buf) {
+              free(_jpg_buf);
+          }
 
           delay(2000);
       } 

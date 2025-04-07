@@ -20,16 +20,14 @@ class TestGadgetScreen extends ConsumerStatefulWidget {
 class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
   bool _isConnected = false;
   Timer? _connectionCheckTimer;
+  int _retryAttempt = 0;
+  static const int maxRetries = 3;
 
   @override
   void initState() {
     super.initState();
-    _checkConnection();
-    // Check connection every 10 seconds
-    _connectionCheckTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => _checkConnection(),
-    );
+    // Initial connection check with retry mechanism
+    _initialConnectionCheck();
   }
 
   @override
@@ -38,54 +36,68 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
     super.dispose();
   }
 
-  Future<void> _checkConnection() async {
+  Future<void> _initialConnectionCheck() async {
+    bool connected = await _checkConnection();
+    
+    if (!connected && _retryAttempt < maxRetries) {
+      // Exponential backoff for retries (1s, 2s, 4s)
+      final delay = Duration(seconds: 1 << _retryAttempt);
+      _retryAttempt++;
+      
+      debugPrint('Connection attempt $_retryAttempt failed, retrying in ${delay.inSeconds}s...');
+      
+      Future.delayed(delay, _initialConnectionCheck);
+    } else if (connected) {
+      // If connected, set up periodic check every 30 seconds
+      _connectionCheckTimer?.cancel();
+      _connectionCheckTimer = Timer.periodic(
+        const Duration(seconds: 30),
+        (_) {
+          if (mounted) {
+            _checkConnection();
+          }
+        },
+      );
+    }
+  }
+
+  Future<bool> _checkConnection() async {
     final gadgetIp = ref.read(gadgetIpProvider);
     try {
       final response = await http.get(
-        Uri.parse('http://$gadgetIp/health'),
-      ).timeout(const Duration(seconds: 2));
+        Uri.parse('http://$gadgetIp/ping'),
+      ).timeout(const Duration(seconds: 5));
+      
+      final bool isConnected = response.statusCode == 200;
       
       if (mounted) {
-        setState(() => _isConnected = response.statusCode == 200);
+        setState(() => _isConnected = isConnected);
       }
+      
+      return isConnected;
     } catch (e) {
       if (mounted) {
         setState(() => _isConnected = false);
       }
+      debugPrint('Connection check error: $e');
+      return false;
     }
   }
 
   Future<void> _sendTestCommand(String endpoint, String commandName) async {
-    if (!_isConnected) {
-      HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('❌ Not connected to gadget'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: EdgeInsets.only(
-            bottom: MediaQuery.of(context).size.height - 150,
-            left: 20,
-            right: 20,
-          ),
-          action: SnackBarAction(
-            label: 'Check IP',
-            textColor: Colors.white,
-            onPressed: () => _showIpConfigDialog(),
-          ),
-        ),
-      );
-      return;
-    }
-
     final gadgetIp = ref.read(gadgetIpProvider);
     final uri = Uri.parse('http://$gadgetIp$endpoint');
 
     try {
       HapticFeedback.lightImpact();
+      
+      // First check connection
+      await _checkConnection();
+      
+      if (!_isConnected) {
+        throw Exception('Not connected to gadget');
+      }
+
       final response = await http.get(uri).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
@@ -125,34 +137,6 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
               bottom: MediaQuery.of(context).size.height - 150,
               left: 20,
               right: 20,
-            ),
-            action: SnackBarAction(
-              label: 'Details',
-              textColor: Colors.white,
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: Text('$commandName Error Details'),
-                    content: SingleChildScrollView(
-                      child: Text(
-                        'Error: $e\n\n'
-                        'Please check:\n'
-                        '1. Gadget is powered on\n'
-                        '2. Connected to the same network\n'
-                        '3. IP address is correct ($gadgetIp)\n'
-                        '4. No firewall blocking the connection'
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
-                      ),
-                    ],
-                  ),
-                );
-              },
             ),
           ),
         );
@@ -276,38 +260,50 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
                       ),
                     ),
                     const Spacer(),
-                    // Connection status and IP
-                    GestureDetector(
-                      onTap: _showIpConfigDialog,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _isConnected ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _isConnected ? Icons.link : Icons.link_off,
-                              color: _isConnected ? Colors.green : Colors.red,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              gadgetIp,
-                              style: TextStyle(
-                                color: _isConnected ? Colors.green : Colors.red,
-                                fontSize: 12,
-                                fontFamily: 'SF Pro Text',
-                              ),
-                            ),
-                          ],
-                        ),
+                    // Simple connection status indicator
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
                       ),
+                      decoration: BoxDecoration(
+                        color: _isConnected 
+                          ? Colors.green.withOpacity(0.2) 
+                          : Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isConnected ? Icons.check_circle : Icons.error,
+                            color: _isConnected ? Colors.green : Colors.red,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _isConnected ? 'Connected' : 'Disconnected',
+                            style: TextStyle(
+                              color: _isConnected ? Colors.green : Colors.red,
+                              fontSize: 12,
+                              fontFamily: 'SF Pro Text',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // IP Configuration button
+                    IconButton(
+                      onPressed: _showIpConfigDialog,
+                      icon: const Icon(
+                        Icons.settings,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      tooltip: 'Configure IP',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
                   ],
                 ),

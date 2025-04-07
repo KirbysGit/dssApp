@@ -145,13 +145,13 @@ class NotificationService {
   Future<void> _checkForPersonDetection() async {
     try {
       final gadgetIp = _container.read(gadgetIpProvider);
-      debugPrint('Checking for person detection...');
+      /// debugPrint('Checking for person detection...');
       final response = await _cameraService.checkPersonDetection(gadgetIp);
-      debugPrint('Person detection response: $response');
+      // debugPrint('Person detection response: $response');
       
       if (response != null) {
         final bool isPersonDetected = response['personDetected'] ?? false;
-        debugPrint('Person detected status: $isPersonDetected');
+        /// debugPrint('Person detected status: $isPersonDetected');
         
         if (isPersonDetected) {
           debugPrint('Person detected - fetching latest image...');
