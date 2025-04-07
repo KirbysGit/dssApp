@@ -45,7 +45,7 @@ const char* WIFI_PASS = "goodlife";
 // -------------------
 
 // const char* GADGET_IP = "192.168.8.151"; Dev Board
-const char* GADGET_IP = "192.168.8.225";
+const char* GADGET_IP = "192.168.8.207";
 
 // ---------
 // CONSTANTS
@@ -128,6 +128,11 @@ unsigned long lastHeartbeat = 0;
 const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 seconds
 const int MAX_MISSED_HEARTBEATS = 5;
 int missedHeartbeats = 0;
+
+// Add these variables at the top with other globals
+unsigned long lastDetectionTime = 0;
+const unsigned long DETECTION_COOLDOWN = 10000; // 10 seconds cooldown
+const unsigned long CAPTURE_TIMEOUT = 1000; // 1 second timeout for capture
 
 // Helper functions.
 void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) 
@@ -222,10 +227,9 @@ static camera_config_t camera_config =
     .pixel_format = PIXFORMAT_JPEG, // Use JPEG for Pixel Format
     .frame_size = FRAMESIZE_QVGA,    //QQVGA-UXGA Do not use sizes above QVGA when not JPEG
 
-    .jpeg_quality = 12, //0-63 lower number means higher quality
-    .fb_count = 1,       //if more than one, i2s runs in continuous mode. Use only with JPEG
-    .fb_location = CAMERA_FB_IN_PSRAM,
-    .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+    .jpeg_quality = 10,        // Slightly reduced quality for faster processing
+    .fb_count = 2,            // Increased frame buffer count
+    .grab_mode = CAMERA_GRAB_LATEST, // Get latest frame instead of waiting
 };
 
 // --------------------
@@ -677,175 +681,172 @@ void setup()
 // Main Loop Function
 void loop()
 {
-    // 1. Check Wi-Fi Connection & Reconnect if Disconnected.
+  // 1. Check Wi-Fi Connection & Reconnect if Disconnected.
     static unsigned long lastWiFiCheck = 0;
-    const unsigned long WIFI_CHECK_INTERVAL = 10000; // Check every 10 seconds
-    
-    if (millis() - lastWiFiCheck > WIFI_CHECK_INTERVAL) 
-    {
-        lastWiFiCheck = millis();
-        checkWiFiConnection();
-    }
-
-    // 2. Handle Incoming HTTP Requests w/ Status Indicator.
-    static unsigned long lastRequestTime = 0;
-    static bool isHandlingRequest = false;
-    
-    if (server.client()) 
-    {
-        if (!isHandlingRequest) 
-        {
-            isHandlingRequest = true;
-            lastRequestTime = millis();
-            // digitalWrite(RedLED_Pin, HIGH); // Visual indicator that we're handling a request
-        }
-    }
-    
-    // Handle Incoming Requests.
-    server.handleClient();
-    
-    // Reset LED after request.
-    if (isHandlingRequest && millis() - lastRequestTime > 100) 
-    {
-        isHandlingRequest = false;
-        // digitalWrite(RedLED_Pin, LOW);
-    }
-
-    // 4. Check Heartbeat.
-    if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) 
-    {
-        lastHeartbeat = millis();
-        missedHeartbeats++;
-        
-        if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) 
-        {
-            // serialPrintWithDelay("[WARNING] Multiple heartbeats missed. Checking WiFi connection...");
-            checkWiFiConnection();
-        }
-    }
-
-    // 5. Handle Alarm State.
-
-    /*
-    if (alarmActive) 
-    {
-        // Toggle alarm for audible effect and LED for visual feedback.
-        static unsigned long lastAlarmToggle = 0;
-        if (millis() - lastAlarmToggle >= 500) {  // Toggle every 500ms
-            lastAlarmToggle = millis();
-            digitalWrite(Alarm_Pin, !digitalRead(Alarm_Pin));
-            // digitalWrite(RedLED_Pin, !digitalRead(RedLED_Pin));
-            // Also flash the white LED for additional visibility
-            digitalWrite(LEDStrip_Pin, HIGH);
-        }
-    }
-    */
-
-  int sensorState = digitalRead(PassiveIR_Pin);
-
-  if (sensorState == HIGH) 
+  const unsigned long WIFI_CHECK_INTERVAL = 10000; // Check every 10 seconds
+  
+  if (millis() - lastWiFiCheck > WIFI_CHECK_INTERVAL) 
   {
-    Serial.println("Passive IR sensor triggered! Capturing image...");
-
-    // Allocate memory for the snapshot buffer
-    snapshot_buf = (uint8_t*)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
-
-    if (snapshot_buf == nullptr) 
-    {
-        ei_printf("ERR: Failed to allocate snapshot buffer!\n");
-        return;
-    }
-
-    ei::signal_t signal;
-    signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
-    signal.get_data = &ei_camera_get_data;
-
-    // Capture an image
-    if (ei_camera_capture((size_t)EI_CLASSIFIER_INPUT_WIDTH, (size_t)EI_CLASSIFIER_INPUT_HEIGHT, snapshot_buf) == false) 
-    {
-        ei_printf("Failed to capture image\r\n");
-        free(snapshot_buf);
-        return;
-    }
-
-    // Run the classifier
-    ei_impulse_result_t result = { 0 };
-    EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
-    if (err != EI_IMPULSE_OK) 
-    {
-        ei_printf("ERR: Failed to run classifier (%d)\n", err);
-        free(snapshot_buf);
-        return;
-    }
-
-    // print the predictions
-    ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
-                result.timing.dsp, result.timing.classification, result.timing.anomaly);
-
-    // Process the classifier results
-    bool personDetected = false;
-
-#if EI_CLASSIFIER_OBJECT_DETECTION == 1
-    ei_printf("Object detection bounding boxes:\r\n");
-    for (uint32_t i = 0; i < result.bounding_boxes_count; i++) 
-    {
-        ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
-        if (bb.value == 0) 
-        {
-            continue;
-        }
-        ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
-                bb.label,
-                bb.value,
-                bb.x,
-                bb.y,
-                bb.width,
-                bb.height);
-        personDetected = true;
-    }
-
-    // Print the prediction results (classification)
-#else
-    ei_printf("Predictions:\r\n");
-    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) 
-    {
-        ei_printf("  %s: ", ei_classifier_inferencing_categories[i]);
-        ei_printf("%.5f\r\n", result.classification[i].value);
-    }
-#endif
-
-    if (personDetected) 
-    {
-        notifyGadget();
-
-        Serial.println("[INFO] Person detected in the image.");
-        Serial.println("[INFO] Turning on lights...");
-
-        digitalWrite(LEDStrip_Pin, HIGH);
-        digitalWrite(Alarm_Pin, HIGH);
-
-        Serial.println("[INFO] Triggering alarm...");
-        Serial.println("[INFO] Sending notification to gadget...");
-
-        delay(15000);
-
-        digitalWrite(LEDStrip_Pin, LOW);
-        digitalWrite(Alarm_Pin, LOW);
-
-        Serial.println("[INFO] Alarm turned off.");
-        Serial.println("[INFO] Lights turned off.");
-
-        delay(2000);
-    } 
-    else 
-    {
-        Serial.println("[INFO] No person detected in the image.");
-    }
-
-    free(snapshot_buf);
+        lastWiFiCheck = millis();
+      checkWiFiConnection();
   }
 
-  delay(3000); // Small delay to avoid rapid polling
+  // 2. Handle Incoming HTTP Requests w/ Status Indicator.
+  static unsigned long lastRequestTime = 0;
+  static bool isHandlingRequest = false;
+    
+  if (server.client()) 
+  {
+      if (!isHandlingRequest) 
+      {
+          isHandlingRequest = true;
+          lastRequestTime = millis();
+          // digitalWrite(RedLED_Pin, HIGH); // Visual indicator that we're handling a request
+      }
+  }
+    
+  // Handle Incoming Requests.
+    server.handleClient();
+    
+  // Reset LED after request.
+  if (isHandlingRequest && millis() - lastRequestTime > 100) 
+  {
+      isHandlingRequest = false;
+      // digitalWrite(RedLED_Pin, LOW);
+  }
+
+  // 4. Check Heartbeat.
+  if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL) 
+  {
+      lastHeartbeat = millis();
+      missedHeartbeats++;
+      
+      if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) 
+      {
+          // serialPrintWithDelay("[WARNING] Multiple heartbeats missed. Checking WiFi connection...");
+          checkWiFiConnection();
+      }
+  }
+
+  int sensorState = digitalRead(PassiveIR_Pin);
+  unsigned long currentTime = millis();
+
+  if (sensorState == HIGH) {
+    // Check if enough time has passed since last detection
+    if (currentTime - lastDetectionTime >= DETECTION_COOLDOWN) {
+      Serial.println("Passive IR sensor triggered! Capturing image...");
+      
+      // Set capture start time
+      unsigned long captureStartTime = millis();
+      
+      // Allocate memory for the snapshot buffer
+      snapshot_buf = (uint8_t*)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
+
+      if (snapshot_buf == nullptr) {
+        ei_printf("ERR: Failed to allocate snapshot buffer!\n");
+        return;
+      }
+
+      // Add timeout for capture
+      if (millis() - captureStartTime > CAPTURE_TIMEOUT) {
+        ei_printf("ERR: Capture timeout!\n");
+        free(snapshot_buf);
+        return;
+      }
+
+      ei::signal_t signal;
+      signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
+      signal.get_data = &ei_camera_get_data;
+
+      // Capture an image
+      if (ei_camera_capture((size_t)EI_CLASSIFIER_INPUT_WIDTH, (size_t)EI_CLASSIFIER_INPUT_HEIGHT, snapshot_buf) == false) 
+      {
+          ei_printf("Failed to capture image\r\n");
+          free(snapshot_buf);
+          return;
+      }
+
+      // Run the classifier
+      ei_impulse_result_t result = { 0 };
+      EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
+      if (err != EI_IMPULSE_OK) 
+      {
+          ei_printf("ERR: Failed to run classifier (%d)\n", err);
+          free(snapshot_buf);
+          return;
+      }
+
+      // print the predictions
+      ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
+                  result.timing.dsp, result.timing.classification, result.timing.anomaly);
+
+      // Process the classifier results
+      bool personDetected = false;
+
+  #if EI_CLASSIFIER_OBJECT_DETECTION == 1
+      ei_printf("Object detection bounding boxes:\r\n");
+      for (uint32_t i = 0; i < result.bounding_boxes_count; i++) 
+      {
+          ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
+          if (bb.value == 0) 
+          {
+              continue;
+          }
+          ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+                  bb.label,
+                  bb.value,
+                  bb.x,
+                  bb.y,
+                  bb.width,
+                  bb.height);
+          personDetected = true;
+      }
+
+      // Print the prediction results (classification)
+  #else
+      ei_printf("Predictions:\r\n");
+      for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) 
+      {
+          ei_printf("  %s: ", ei_classifier_inferencing_categories[i]);
+          ei_printf("%.5f\r\n", result.classification[i].value);
+      }
+      #endif
+      
+      if (personDetected) 
+      {
+          lastDetectionTime = currentTime;  // Update last detection time
+          notifyGadget();
+
+          Serial.println("[INFO] Person detected in the image.");
+          Serial.println("[INFO] Turning on lights...");
+
+          digitalWrite(LEDStrip_Pin, HIGH);
+          digitalWrite(Alarm_Pin, HIGH);
+
+          Serial.println("[INFO] Triggering alarm...");
+          Serial.println("[INFO] Sending notification to gadget...");
+
+          delay(15000); // 15 seconds.
+
+          digitalWrite(LEDStrip_Pin, LOW);
+          digitalWrite(Alarm_Pin, LOW);
+
+          Serial.println("[INFO] Alarm turned off.");
+          Serial.println("[INFO] Lights turned off.");
+
+          delay(2000);
+      } 
+      else 
+      {
+          Serial.println("[INFO] No person detected in the image.");
+      }
+
+      free(snapshot_buf);
+    }
+  }
+
+  // Reduced delay for more responsive detection
+  delay(100);  // 100ms delay instead of 3000ms
 }
 
 /**
@@ -923,45 +924,42 @@ void ei_camera_deinit(void) {
  */
 bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) 
 {
-    bool do_resize = false;
-
     if (!is_initialised) {
         ei_printf("ERR: Camera is not initialized\r\n");
         return false;
     }
 
     camera_fb_t *fb = esp_camera_fb_get();
-
-    if (!fb) 
-    {
+    if (!fb) {
         ei_printf("Camera capture failed\n");
         return false;
     }
 
-   bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
+    // Use hardware JPEG decoder when possible
+    if (fb->format == PIXFORMAT_JPEG) {
+        bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
+        esp_camera_fb_return(fb);
 
-   esp_camera_fb_return(fb);
-
-   if(!converted){
-       ei_printf("Conversion failed\n");
-       return false;
-   }
-
-    if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS)
-        || (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
-        do_resize = true;
+        if (!converted) {
+            ei_printf("Conversion failed\n");
+            return false;
+        }
+    } else {
+        memcpy(snapshot_buf, fb->buf, fb->len);
+        esp_camera_fb_return(fb);
     }
 
-    if (do_resize) {
+    // Only resize if necessary
+    if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS) ||
+        (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
         ei::image::processing::crop_and_interpolate_rgb888(
-        out_buf,
-        EI_CAMERA_RAW_FRAME_BUFFER_COLS,
-        EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
-        out_buf,
-        img_width,
-        img_height);
+            out_buf,
+            EI_CAMERA_RAW_FRAME_BUFFER_COLS,
+            EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
+            out_buf,
+            img_width,
+            img_height);
     }
-
 
     return true;
 }

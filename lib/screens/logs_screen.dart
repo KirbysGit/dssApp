@@ -6,6 +6,7 @@ import '../providers/security_provider.dart';
 import '../models/detection_log.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/cameras_screen.dart';
+import '../screens/alert_screen.dart';
 
 class LogsScreen extends ConsumerStatefulWidget {
   const LogsScreen({Key? key}) : super(key: key);
@@ -145,9 +146,6 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
                                 log: log,
                                 dateFormatter: _dateFormatter,
                                 isLargeScreen: isLargeScreen,
-                                onTap: () {
-                                  // TODO: Show full screen image/details
-                                },
                               ),
                             );
                           },
@@ -229,14 +227,12 @@ class LogEntryCard extends StatelessWidget {
   final DetectionLog log;
   final DateFormat dateFormatter;
   final bool isLargeScreen;
-  final VoidCallback onTap;
 
   const LogEntryCard({
     Key? key,
     required this.log,
     required this.dateFormatter,
     required this.isLargeScreen,
-    required this.onTap,
   }) : super(key: key);
 
   @override
@@ -256,7 +252,30 @@ class LogEntryCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
+          onTap: () {
+            // Show AlertScreen when tapped
+            Navigator.of(context).push(
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) => AlertScreen(
+                  image: log.imageBytes,
+                  cameraName: log.cameraName,
+                  timestamp: log.timestamp,
+                ),
+                transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                  const begin = Offset(0.0, 1.0);
+                  const end = Offset.zero;
+                  const curve = Curves.easeOutCubic;
+                  var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                  var offsetAnimation = animation.drive(tween);
+                  return SlideTransition(
+                    position: offsetAnimation,
+                    child: child,
+                  );
+                },
+                transitionDuration: const Duration(milliseconds: 300),
+              ),
+            );
+          },
           borderRadius: BorderRadius.circular(20),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -270,20 +289,20 @@ class LogEntryCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
-                    image: log.imageUrl != null
-                        ? DecorationImage(
-                            image: NetworkImage(log.imageUrl!),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
                   ),
-                  child: log.imageUrl == null
-                      ? const Icon(
+                  child: log.imageBytes != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(
+                            log.imageBytes!,
+                            fit: BoxFit.cover,
+                          ),
+                        )
+                      : const Icon(
                           Icons.camera_alt,
                           color: Colors.white54,
                           size: 32,
-                        )
-                      : null,
+                        ),
                 ),
                 const SizedBox(width: 16),
                 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -9,9 +10,11 @@ import '../theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/security_provider.dart';
 import '../models/security_state.dart';
+import '../services/notification_service.dart';
 import './cameras_screen.dart';
 import './logs_screen.dart';
 import './test_gadget_screen.dart';
+import './alert_screen.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -24,6 +27,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   Image? _latestImage;
+  Uint8List? _latestImageBytes;
   bool _alertVisible = false;
   final DateFormat _dateFormatter = DateFormat('MMM dd, yyyy, hh:mm a');
   String? _activeCameraUrl;
@@ -62,107 +66,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     if (_alertVisible || !mounted) return;
 
     _alertVisible = true;
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) => WillPopScope(
-        onWillPop: () async => false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.warning, color: Colors.red, size: 28),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'Person Detected!',
-                  style: TextStyle(
-                    fontFamily: 'SF Pro Display',
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_activeCameraName != null)
-                  Text(
-                    'Camera: $_activeCameraName',
-                    style: const TextStyle(
-                      fontFamily: 'SF Pro Text',
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                Text(
-                  'Detection Time: ${status.lastDetectionTime != null ? _dateFormatter.format(status.lastDetectionTime!) : "Unknown"}',
-                  style: const TextStyle(
-                    fontFamily: 'SF Pro Text',
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (_latestImage != null)
-                  Hero(
-                    tag: 'detection_image',
-                    child: Container(
-                      constraints: const BoxConstraints(maxHeight: 300),
-                      width: double.infinity,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: _latestImage!,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(
-                'Dismiss',
-                style: TextStyle(
-                  color: AppTheme.deepForestGreen,
-                  fontFamily: 'SF Pro Text',
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // TODO: Add emergency response action
-                Navigator.of(dialogContext).pop();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: const Text(
-                'Emergency Response',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontFamily: 'SF Pro Text',
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
+    
+    await Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => AlertScreen(
+          image: _latestImageBytes,
+          cameraName: _activeCameraName ?? 'Unknown Camera',
+          timestamp: status.lastDetectionTime ?? DateTime.now(),
         ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0);
+          const end = Offset.zero;
+          const curve = Curves.easeOutCubic;
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var offsetAnimation = animation.drive(tween);
+          return SlideTransition(
+            position: offsetAnimation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     ).whenComplete(() {
       if (mounted) {
@@ -179,14 +102,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       return;
     }
 
-    // If we're already showing an alert or fetching an image, don't fetch again
-    if (_alertVisible || _isFetchingImage) {
-      debugPrint('Alert visible or already fetching image, skipping fetch');
+    // If we're already showing an alert, don't fetch again
+    if (_alertVisible) {
+      debugPrint('Alert visible, skipping fetch');
+      return;
+    }
+
+    // If we're already fetching, wait for the current fetch to complete
+    if (_isFetchingImage) {
+      debugPrint('Already fetching image, waiting...');
       return;
     }
 
     debugPrint('Starting image fetch...');
-    _isFetchingImage = true;
+    setState(() => _isFetchingImage = true);
 
     try {
       // Find the most recent camera
@@ -206,44 +135,51 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       });
 
       debugPrint('Fetching image from camera: $cameraUrl');
-      final response = await http.get(Uri.parse(cameraUrl))
-          .timeout(const Duration(seconds: 5));
+      
+      // Try up to 3 times with increasing delays
+      Uint8List? imageBytes;
+      for (int attempt = 1; attempt <= 3 && mounted; attempt++) {
+        try {
+          final response = await http.get(Uri.parse(cameraUrl))
+              .timeout(const Duration(seconds: 5));
 
-      if (response.statusCode == 200 && mounted) {
-        if (response.headers['content-type']?.contains('image/') == true) {
-          debugPrint('Image fetched successfully');
-          setState(() {
-            _latestImage = Image.memory(
-              response.bodyBytes,
-              fit: BoxFit.contain,
-              // Use gapless playback to prevent flickering during updates
-              gaplessPlayback: true,
-            );
-          });
-        } else {
-          debugPrint('Invalid image format received');
-          throw Exception('Invalid image format received');
+          if (response.statusCode == 200 && 
+              response.headers['content-type']?.contains('image/') == true) {
+            imageBytes = response.bodyBytes;
+            debugPrint('Image fetch successful on attempt $attempt');
+            break;
+          }
+          
+          debugPrint('Invalid response on attempt $attempt: ${response.statusCode}');
+          if (attempt < 3) {
+            await Future.delayed(Duration(milliseconds: 500 * attempt));
+          }
+        } catch (e) {
+          debugPrint('Error on attempt $attempt: $e');
+          if (attempt < 3) {
+            await Future.delayed(Duration(milliseconds: 500 * attempt));
+          }
         }
+      }
+
+      if (imageBytes != null && mounted) {
+        setState(() {
+          _latestImageBytes = imageBytes;
+          _latestImage = imageBytes != null ? Image.memory(
+            imageBytes,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
+          ) : null;
+        });
+        debugPrint('Image updated successfully');
       } else {
-        debugPrint('Failed to fetch image. Status code: ${response.statusCode}');
-        throw Exception('Failed to fetch image: ${response.statusCode}');
+        debugPrint('Failed to fetch image after all attempts');
       }
     } catch (e) {
-      debugPrint('Error fetching image: $e');
-      // Don't show error UI for background fetches
-      if (_alertVisible && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to fetch image: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      debugPrint('Error in image fetch process: $e');
     } finally {
       if (mounted) {
-        setState(() {
-          _isFetchingImage = false;
-        });
+        setState(() => _isFetchingImage = false);
         debugPrint('Image fetch completed, _isFetchingImage set to false');
       }
     }
@@ -417,9 +353,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                             dateFormatter: _dateFormatter,
                             activeCameraName: _activeCameraName,
                             isLargeScreen: isLargeScreen,
-                            onAlarmOff: () {
-                              // TODO: Implement alarm off functionality
-                            },
                           ),
                           const SizedBox(height: 24),
                           
@@ -563,18 +496,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               final newIp = ipController.text.trim();
               if (_isValidIpAddress(newIp)) {
+                // Update the IP
                 ref.read(gadgetIpProvider.notifier).state = newIp;
                 Navigator.pop(context);
-                // Show confirmation
+
+                // Show loading indicator
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Gadget IP updated to: $newIp'),
-                    backgroundColor: Colors.green,
+                  const SnackBar(
+                    content: Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        ),
+                        SizedBox(width: 16),
+                        Text('Connecting to gadget...'),
+                      ],
+                    ),
+                    duration: Duration(seconds: 2),
                   ),
                 );
+
+                // Trigger an immediate status check
+                await ref.read(securityStatusProvider.notifier).checkStatus();
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Gadget IP updated to: $newIp'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -613,7 +573,6 @@ class StatusCard extends ConsumerWidget {
   final DateFormat dateFormatter;
   final String? activeCameraName;
   final bool isLargeScreen;
-  final VoidCallback onAlarmOff;
 
   const StatusCard({
     Key? key,
@@ -621,105 +580,7 @@ class StatusCard extends ConsumerWidget {
     required this.dateFormatter,
     required this.activeCameraName,
     required this.isLargeScreen,
-    required this.onAlarmOff,
   }) : super(key: key);
-
-  Future<void> _sendGadgetCommand(BuildContext context, WidgetRef ref, String endpoint) async {
-    debugPrint('\n========== SENDING GADGET COMMAND ==========');
-    debugPrint('Endpoint: $endpoint');
-    
-    final gadgetIp = ref.read(gadgetIpProvider);
-    final uri = Uri.parse('http://$gadgetIp$endpoint');
-    debugPrint('Full URL: $uri');
-
-    try {
-        debugPrint('Sending HTTP GET request...');
-        
-        final response = await http.get(uri).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-                debugPrint('Request timed out after 5 seconds');
-                throw TimeoutException('Request timed out');
-            },
-        );
-
-        debugPrint('Response status code: ${response.statusCode}');
-        debugPrint('Response body: ${response.body}');
-
-        if (response.statusCode == 200) {
-            debugPrint('Command sent successfully');
-            if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text('Command sent successfully: $endpoint'),
-                        backgroundColor: Colors.green,
-                        duration: const Duration(seconds: 2),
-                    ),
-                );
-            }
-        } else {
-            debugPrint('Failed with status code: ${response.statusCode}');
-            throw Exception('Server returned ${response.statusCode}: ${response.body}');
-        }
-    } catch (e, stackTrace) {
-        debugPrint('Error details:');
-        debugPrint('Exception: $e');
-        debugPrint('Stack trace: $stackTrace');
-        
-        if (context.mounted) {
-            String errorMessage = 'Failed to send command';
-            
-            // Provide more specific error messages
-            if (e is TimeoutException) {
-                errorMessage = 'Connection timed out. Check if the gadget is online.';
-            } else if (e is SocketException) {
-                errorMessage = 'Network error. Check your connection and gadget IP.';
-            } else if (e.toString().contains('Connection refused')) {
-                errorMessage = 'Connection refused. Check if the gadget is running.';
-            }
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                    content: Text(errorMessage),
-                    backgroundColor: Colors.red,
-                    duration: const Duration(seconds: 3),
-                    action: SnackBarAction(
-                        label: 'Details',
-                        textColor: Colors.white,
-                        onPressed: () {
-                            showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                    title: const Text('Error Details'),
-                                    content: SingleChildScrollView(
-                                        child: Text(
-                                            'Endpoint: $endpoint\n'
-                                            'IP: $gadgetIp\n'
-                                            'Error: $e\n\n'
-                                            'Please check:\n'
-                                            '1. Gadget is powered on\n'
-                                            '2. Connected to the same network\n'
-                                            '3. IP address is correct ($gadgetIp)\n'
-                                            '4. No firewall blocking the connection'
-                                        ),
-                                    ),
-                                    actions: [
-                                        TextButton(
-                                            onPressed: () => Navigator.pop(context),
-                                            child: const Text('Close'),
-                                        ),
-                                    ],
-                                ),
-                            );
-                        },
-                    ),
-                ),
-            );
-        }
-    } finally {
-        debugPrint('=========================================\n');
-    }
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -729,9 +590,9 @@ class StatusCard extends ConsumerWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -744,7 +605,6 @@ class StatusCard extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Status Section
                 Row(
                   children: [
                     _buildStatusIcon(ref),
@@ -767,55 +627,7 @@ class StatusCard extends ConsumerWidget {
                     ),
                   ],
                 ),
-                
-                const SizedBox(height: 20),
-                
-                // Control Buttons
-                Center(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      if (status.personDetected)
-                        _buildControlButton(ref, '/turn_off_alarm'),
-                      _buildControlButton(ref, '/trigger_alarm'),
-                      _buildControlButton(ref, '/turn_on_lights'),
-                    ],
-                  ),
-                ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildControlButton(WidgetRef ref, String endpoint) {
-    return Builder(
-      builder: (context) => SizedBox(
-        height: 40,
-        child: ElevatedButton.icon(
-          onPressed: () {
-              debugPrint('\n========== BUTTON PRESSED ==========');
-              debugPrint('Button: $endpoint');
-              _sendGadgetCommand(context, ref, endpoint);
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.pineGreen.withOpacity(0.8),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 8,
-            ),
-          ),
-          icon: const Icon(Icons.lightbulb, size: 20),
-          label: Text(
-            endpoint.split('/').last,
-            style: TextStyle(
-              fontSize: isLargeScreen ? 14 : 13,
-              fontFamily: 'SF Pro Text',
             ),
           ),
         ),
@@ -875,10 +687,10 @@ class StatusCard extends ConsumerWidget {
 
   Widget _buildCameraInfo() {
     return Text(
-      'Camera: $activeCameraName',
+      'Camera: ${activeCameraName?.replaceAll('camera_node', 'Node ') ?? 'Unknown'} Camera',
       style: TextStyle(
         color: Colors.white.withOpacity(0.8),
-        fontSize: isLargeScreen ? 16 : 14,
+        fontSize: isLargeScreen ? 14 : 12,
         fontFamily: 'SF Pro Text',
         letterSpacing: 0.3,
       ),
@@ -893,14 +705,28 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 20,
-        fontWeight: FontWeight.bold,
-        fontFamily: 'SF Pro Display',
-        letterSpacing: 0.8,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          fontFamily: 'SF Pro Display',
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -1085,9 +911,9 @@ class DetectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -1098,6 +924,26 @@ class DetectionCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (activeCameraName != null)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.pineGreen.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${activeCameraName?.replaceAll('camera_node', 'Node ') ?? 'Unknown'} Camera',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: isLargeScreen ? 14 : 12,
+                        fontWeight: FontWeight.w500,
+                        fontFamily: 'SF Pro Text',
+                      ),
+                    ),
+                  ),
+                ),
               Hero(
                 tag: 'detection_image',
                 child: GestureDetector(
@@ -1106,9 +952,7 @@ class DetectionCard extends StatelessWidget {
                     width: double.infinity,
                     constraints: const BoxConstraints(maxHeight: 300),
                     child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(20),
-                      ),
+                      borderRadius: BorderRadius.circular(20),
                       child: image,
                     ),
                   ),
@@ -1119,33 +963,18 @@ class DetectionCard extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (status.lastDetectionTime != null)
-                            Text(
-                              'Captured: ${dateFormatter.format(status.lastDetectionTime!)}',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isLargeScreen ? 14 : 12,
-                                fontFamily: 'SF Pro Text',
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          if (activeCameraName != null)
-                            Text(
-                              'Camera: $activeCameraName',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: isLargeScreen ? 14 : 12,
-                                fontFamily: 'SF Pro Text',
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                        ],
+                    if (status.lastDetectionTime != null)
+                      Expanded(
+                        child: Text(
+                          dateFormatter.format(status.lastDetectionTime!),
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: isLargeScreen ? 14 : 12,
+                            fontFamily: 'SF Pro Text',
+                            letterSpacing: 0.3,
+                          ),
+                        ),
                       ),
-                    ),
                     IconButton(
                       icon: Icon(
                         Icons.fullscreen,

@@ -13,8 +13,9 @@ _$DetectionLogImpl _$$DetectionLogImplFromJson(Map<String, dynamic> json) =>
       cameraName: json['cameraName'] as String,
       cameraUrl: json['cameraUrl'] as String,
       imageUrl: json['imageUrl'] as String?,
-      isAcknowledged: json['isAcknowledged'] as bool,
-      wasAlarmTriggered: json['wasAlarmTriggered'] as bool,
+      isAcknowledged: json['isAcknowledged'] as bool? ?? false,
+      wasAlarmTriggered: json['wasAlarmTriggered'] as bool? ?? false,
+      imagePath: json['imagePath'] as String?,
     );
 
 Map<String, dynamic> _$$DetectionLogImplToJson(_$DetectionLogImpl instance) =>
@@ -26,4 +27,5 @@ Map<String, dynamic> _$$DetectionLogImplToJson(_$DetectionLogImpl instance) =>
       'imageUrl': instance.imageUrl,
       'isAcknowledged': instance.isAcknowledged,
       'wasAlarmTriggered': instance.wasAlarmTriggered,
+      'imagePath': instance.imagePath,
     };

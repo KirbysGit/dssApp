@@ -38,14 +38,9 @@
 const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
 const char* WIFI_PASS = "goodlife";
 
-// Fill with Node IP address, prob dont need anymore since our code constantly monitors the network.
-// May need for sending alarm noticiations.
-// const char* Node1_IP = 'http://192.168.1.108';
-// const char* Node2_IP = 'http://192.168.1.xxx';
-// const char* Node3_IP = 'http://192.168.1.xxx';
-// const char* Node4_IP = 'http://192.168.1.xxx';
-// const char* Node5_IP = 'http://192.168.1.xxx';
-// const char* Node6_IP = 'http://192.168.1.xxx';
+// Jaxon's Hotspot.
+// const char* WIFI_SSID = "Jaxon's IPhone";
+// const char* WIFI_PASS = "jaxontopel1";
 
 // Server on port 80.
 WebServer server(80);
@@ -57,13 +52,13 @@ WebServer server(80);
 // GPIO Pins --> Active Low.
 
 // Trigger Alarm.
-const int TRIGGER_ALARM_PIN = 40;
+const int TRIGGER_ALARM_PIN = 4;
 
 // Turn On Lights.
-const int TURN_ON_LIGHTS_PIN = 41;
+const int TURN_ON_LIGHTS_PIN = 5;
 
 // Turn Off Alarm.
-const int TURN_OFF_ALARM_PIN = 42;
+const int TURN_OFF_ALARM_PIN = 6;
 
 const int LED1 = 16;
 const int LED2 = 17;

@@ -27,6 +27,10 @@ mixin _$DetectionLog {
   String? get imageUrl => throw _privateConstructorUsedError;
   bool get isAcknowledged => throw _privateConstructorUsedError;
   bool get wasAlarmTriggered => throw _privateConstructorUsedError;
+  String? get imagePath =>
+      throw _privateConstructorUsedError; // Local file path where the image is stored
+  @JsonKey(ignore: true)
+  Uint8List? get imageBytes => throw _privateConstructorUsedError;
 
   /// Serializes this DetectionLog to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -51,7 +55,9 @@ abstract class $DetectionLogCopyWith<$Res> {
       String cameraUrl,
       String? imageUrl,
       bool isAcknowledged,
-      bool wasAlarmTriggered});
+      bool wasAlarmTriggered,
+      String? imagePath,
+      @JsonKey(ignore: true) Uint8List? imageBytes});
 }
 
 /// @nodoc
@@ -76,6 +82,8 @@ class _$DetectionLogCopyWithImpl<$Res, $Val extends DetectionLog>
     Object? imageUrl = freezed,
     Object? isAcknowledged = null,
     Object? wasAlarmTriggered = null,
+    Object? imagePath = freezed,
+    Object? imageBytes = freezed,
   }) {
     return _then(_value.copyWith(
       id: null == id
@@ -106,6 +114,14 @@ class _$DetectionLogCopyWithImpl<$Res, $Val extends DetectionLog>
           ? _value.wasAlarmTriggered
           : wasAlarmTriggered // ignore: cast_nullable_to_non_nullable
               as bool,
+      imagePath: freezed == imagePath
+          ? _value.imagePath
+          : imagePath // ignore: cast_nullable_to_non_nullable
+              as String?,
+      imageBytes: freezed == imageBytes
+          ? _value.imageBytes
+          : imageBytes // ignore: cast_nullable_to_non_nullable
+              as Uint8List?,
     ) as $Val);
   }
 }
@@ -125,7 +141,9 @@ abstract class _$$DetectionLogImplCopyWith<$Res>
       String cameraUrl,
       String? imageUrl,
       bool isAcknowledged,
-      bool wasAlarmTriggered});
+      bool wasAlarmTriggered,
+      String? imagePath,
+      @JsonKey(ignore: true) Uint8List? imageBytes});
 }
 
 /// @nodoc
@@ -148,6 +166,8 @@ class __$$DetectionLogImplCopyWithImpl<$Res>
     Object? imageUrl = freezed,
     Object? isAcknowledged = null,
     Object? wasAlarmTriggered = null,
+    Object? imagePath = freezed,
+    Object? imageBytes = freezed,
   }) {
     return _then(_$DetectionLogImpl(
       id: null == id
@@ -178,6 +198,14 @@ class __$$DetectionLogImplCopyWithImpl<$Res>
           ? _value.wasAlarmTriggered
           : wasAlarmTriggered // ignore: cast_nullable_to_non_nullable
               as bool,
+      imagePath: freezed == imagePath
+          ? _value.imagePath
+          : imagePath // ignore: cast_nullable_to_non_nullable
+              as String?,
+      imageBytes: freezed == imageBytes
+          ? _value.imageBytes
+          : imageBytes // ignore: cast_nullable_to_non_nullable
+              as Uint8List?,
     ));
   }
 }
@@ -191,8 +219,10 @@ class _$DetectionLogImpl implements _DetectionLog {
       required this.cameraName,
       required this.cameraUrl,
       this.imageUrl,
-      required this.isAcknowledged,
-      required this.wasAlarmTriggered});
+      this.isAcknowledged = false,
+      this.wasAlarmTriggered = false,
+      this.imagePath,
+      @JsonKey(ignore: true) this.imageBytes});
 
   factory _$DetectionLogImpl.fromJson(Map<String, dynamic> json) =>
       _$$DetectionLogImplFromJson(json);
@@ -208,13 +238,21 @@ class _$DetectionLogImpl implements _DetectionLog {
   @override
   final String? imageUrl;
   @override
+  @JsonKey()
   final bool isAcknowledged;
   @override
+  @JsonKey()
   final bool wasAlarmTriggered;
+  @override
+  final String? imagePath;
+// Local file path where the image is stored
+  @override
+  @JsonKey(ignore: true)
+  final Uint8List? imageBytes;
 
   @override
   String toString() {
-    return 'DetectionLog(id: $id, timestamp: $timestamp, cameraName: $cameraName, cameraUrl: $cameraUrl, imageUrl: $imageUrl, isAcknowledged: $isAcknowledged, wasAlarmTriggered: $wasAlarmTriggered)';
+    return 'DetectionLog(id: $id, timestamp: $timestamp, cameraName: $cameraName, cameraUrl: $cameraUrl, imageUrl: $imageUrl, isAcknowledged: $isAcknowledged, wasAlarmTriggered: $wasAlarmTriggered, imagePath: $imagePath, imageBytes: $imageBytes)';
   }
 
   @override
@@ -234,13 +272,26 @@ class _$DetectionLogImpl implements _DetectionLog {
             (identical(other.isAcknowledged, isAcknowledged) ||
                 other.isAcknowledged == isAcknowledged) &&
             (identical(other.wasAlarmTriggered, wasAlarmTriggered) ||
-                other.wasAlarmTriggered == wasAlarmTriggered));
+                other.wasAlarmTriggered == wasAlarmTriggered) &&
+            (identical(other.imagePath, imagePath) ||
+                other.imagePath == imagePath) &&
+            const DeepCollectionEquality()
+                .equals(other.imageBytes, imageBytes));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
-  int get hashCode => Object.hash(runtimeType, id, timestamp, cameraName,
-      cameraUrl, imageUrl, isAcknowledged, wasAlarmTriggered);
+  int get hashCode => Object.hash(
+      runtimeType,
+      id,
+      timestamp,
+      cameraName,
+      cameraUrl,
+      imageUrl,
+      isAcknowledged,
+      wasAlarmTriggered,
+      imagePath,
+      const DeepCollectionEquality().hash(imageBytes));
 
   /// Create a copy of DetectionLog
   /// with the given fields replaced by the non-null parameter values.
@@ -265,8 +316,10 @@ abstract class _DetectionLog implements DetectionLog {
       required final String cameraName,
       required final String cameraUrl,
       final String? imageUrl,
-      required final bool isAcknowledged,
-      required final bool wasAlarmTriggered}) = _$DetectionLogImpl;
+      final bool isAcknowledged,
+      final bool wasAlarmTriggered,
+      final String? imagePath,
+      @JsonKey(ignore: true) final Uint8List? imageBytes}) = _$DetectionLogImpl;
 
   factory _DetectionLog.fromJson(Map<String, dynamic> json) =
       _$DetectionLogImpl.fromJson;
@@ -285,6 +338,11 @@ abstract class _DetectionLog implements DetectionLog {
   bool get isAcknowledged;
   @override
   bool get wasAlarmTriggered;
+  @override
+  String? get imagePath; // Local file path where the image is stored
+  @override
+  @JsonKey(ignore: true)
+  Uint8List? get imageBytes;
 
   /// Create a copy of DetectionLog
   /// with the given fields replaced by the non-null parameter values.

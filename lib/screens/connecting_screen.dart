@@ -385,13 +385,13 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
         borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Column(
+            child: Column(
             children: [
               // Connection Steps Indicator with Icons
               SizedBox(
                 height: 80,
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(
                     _connectionSteps.length,
                     (index) => _buildStepIndicatorWithIcon(index),
@@ -404,7 +404,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
               // Lottie Animation based on connection state
               Stack(
                 alignment: Alignment.center,
-                children: [
+              children: [
                   // Background glow
                   AnimatedBuilder(
                     animation: _pulseController,
@@ -600,20 +600,20 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
               // Progress Percentage with Animation
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                child: Text(
+                          child: Text(
                   '${(_progress * 100).toInt()}%',
                   key: ValueKey<int>((_progress * 100).toInt()),
-                  style: TextStyle(
+                            style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: isLargeScreen ? 16 : 14,
                     fontFamily: 'SF Pro Text',
-                    fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -671,7 +671,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
             ),
           ),
           const SizedBox(height: 4),
-          Container(
+                  Container(
             height: 2,
             margin: const EdgeInsets.symmetric(horizontal: 4),
             color: isCompleted
@@ -696,7 +696,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
             animation: _backgroundController,
             builder: (context, child) {
               return Container(
-                decoration: BoxDecoration(
+                    decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -715,7 +715,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
                 child: CustomPaint(
                   painter: WavesPainter(
                     animation: _backgroundController,
-                    color: Colors.white.withOpacity(0.1),
+                      color: Colors.white.withOpacity(0.1),
                   ),
                 ),
               );
@@ -728,10 +728,10 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
               child: Padding(
                 padding: EdgeInsets.symmetric(
                   horizontal: isLargeScreen ? 48.0 : 24.0,
-                ),
-                child: Column(
+                    ),
+                    child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: [
+                      children: [
                     SizedBox(height: size.height * 0.05),
                     // Animated Logo
                     Hero(
@@ -772,9 +772,9 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
                       ),
                       label: Text(
                         _showTroubleshooting ? 'Hide Tips' : 'Need Help?',
-                        style: TextStyle(
+                          style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
-                          fontSize: isLargeScreen ? 16 : 14,
+                            fontSize: isLargeScreen ? 16 : 14,
                           fontFamily: 'SF Pro Text',
                         ),
                       ),
@@ -812,9 +812,9 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
                                     fontSize: isLargeScreen ? 18 : 16,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'SF Pro Display',
-                                  ),
-                                ),
-                              ],
+                    ),
+                  ),
+              ],
                             ),
                             const SizedBox(height: 12),
                             _buildAnimatedTip(

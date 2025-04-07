@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/security_provider.dart';
@@ -17,52 +18,114 @@ class TestGadgetScreen extends ConsumerStatefulWidget {
 }
 
 class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
-  bool _isLoading = false;
+  bool _isConnected = false;
+  Timer? _connectionCheckTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkConnection();
+    // Check connection every 10 seconds
+    _connectionCheckTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _checkConnection(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _connectionCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkConnection() async {
+    final gadgetIp = ref.read(gadgetIpProvider);
+    try {
+      final response = await http.get(
+        Uri.parse('http://$gadgetIp/health'),
+      ).timeout(const Duration(seconds: 2));
+      
+      if (mounted) {
+        setState(() => _isConnected = response.statusCode == 200);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isConnected = false);
+      }
+    }
+  }
 
   Future<void> _sendTestCommand(String endpoint, String commandName) async {
-    if (_isLoading) return;
+    if (!_isConnected) {
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('❌ Not connected to gadget'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: EdgeInsets.only(
+            bottom: MediaQuery.of(context).size.height - 150,
+            left: 20,
+            right: 20,
+          ),
+          action: SnackBarAction(
+            label: 'Check IP',
+            textColor: Colors.white,
+            onPressed: () => _showIpConfigDialog(),
+          ),
+        ),
+      );
+      return;
+    }
 
-    setState(() => _isLoading = true);
+    final gadgetIp = ref.read(gadgetIpProvider);
+    final uri = Uri.parse('http://$gadgetIp$endpoint');
 
     try {
-      debugPrint('\n========== SENDING TEST COMMAND ==========');
-      debugPrint('Command: $commandName');
-      debugPrint('Endpoint: $endpoint');
-      
-      final gadgetIp = ref.read(gadgetIpProvider);
-      final uri = Uri.parse('http://$gadgetIp$endpoint');
-      debugPrint('Full URL: $uri');
-
-      final response = await http.get(uri).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () {
-          throw TimeoutException('Request timed out');
-        },
-      );
-
-      debugPrint('Response status code: ${response.statusCode}');
-      debugPrint('Response body: ${response.body}');
+      HapticFeedback.lightImpact();
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         if (mounted) {
+          HapticFeedback.mediumImpact();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('$commandName sent successfully'),
+              content: Text('$commandName sent successfully ✅'),
               backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              margin: EdgeInsets.only(
+                bottom: MediaQuery.of(context).size.height - 150,
+                left: 20,
+                right: 20,
+              ),
             ),
           );
         }
       } else {
-        throw Exception('Server returned ${response.statusCode}');
+        throw Exception('Failed with status ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Error: $e');
       if (mounted) {
-        final gadgetIp = ref.read(gadgetIpProvider);
+        HapticFeedback.heavyImpact();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to send $commandName: $e'),
+            content: Text('❌ Failed to send $commandName'),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: EdgeInsets.only(
+              bottom: MediaQuery.of(context).size.height - 150,
+              left: 20,
+              right: 20,
+            ),
             action: SnackBarAction(
               label: 'Details',
               textColor: Colors.white,
@@ -94,18 +157,88 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
           ),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-      debugPrint('=========================================\n');
     }
+  }
+
+  Future<void> _showIpConfigDialog() async {
+    final currentIp = ref.read(gadgetIpProvider);
+    final TextEditingController ipController = TextEditingController(text: currentIp);
+
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Configure Gadget IP'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ipController,
+              decoration: const InputDecoration(
+                labelText: 'IP Address',
+                hintText: '192.168.8.225',
+                helperText: 'Enter the IP address of your SecureScape gadget',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newIp = ipController.text.trim();
+              if (_isValidIpAddress(newIp)) {
+                ref.read(gadgetIpProvider.notifier).state = newIp;
+                Navigator.pop(context);
+                _checkConnection();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Gadget IP updated to: $newIp'),
+                    backgroundColor: Colors.green,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid IP address'),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isValidIpAddress(String ip) {
+    if (ip.isEmpty) return false;
+    
+    final parts = ip.split('.');
+    if (parts.length != 4) return false;
+    
+    return parts.every((part) {
+      try {
+        final number = int.parse(part);
+        return number >= 0 && number <= 255;
+      } catch (e) {
+        return false;
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final isLargeScreen = size.width > 600;
+    final gadgetIp = ref.watch(gadgetIpProvider);
 
     return Scaffold(
       body: Container(
@@ -134,7 +267,7 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
                 child: Row(
                   children: [
                     Text(
-                      'Test Gadget Controls',
+                      'Gadget Utility',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: isLargeScreen ? 28 : 24,
@@ -143,15 +276,39 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
                       ),
                     ),
                     const Spacer(),
-                    if (_isLoading)
-                      const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          strokeWidth: 2,
+                    // Connection status and IP
+                    GestureDetector(
+                      onTap: _showIpConfigDialog,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _isConnected ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isConnected ? Icons.link : Icons.link_off,
+                              color: _isConnected ? Colors.green : Colors.red,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              gadgetIp,
+                              style: TextStyle(
+                                color: _isConnected ? Colors.green : Colors.red,
+                                fontSize: 12,
+                                fontFamily: 'SF Pro Text',
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -163,81 +320,21 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
                     horizontal: isLargeScreen ? 24.0 : 16.0,
                     vertical: 24.0,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Info Card
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(16),
+                  child: isLargeScreen
+                      ? GridView.count(
+                          crossAxisCount: 3,
+                          shrinkWrap: true,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          childAspectRatio: 1.2,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: _buildUtilityButtons(),
+                        )
+                      : Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          children: _buildUtilityButtons(),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Test Environment',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'SF Pro Display',
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Use these controls to test the gadget functionality without physical hardware switches. Each button simulates a hardware switch action.',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 16,
-                                fontFamily: 'SF Pro Text',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Test Controls
-                      Wrap(
-                        spacing: 16,
-                        runSpacing: 16,
-                        children: [
-                          _buildTestButton(
-                            icon: Icons.warning,
-                            label: 'Trigger Alarm',
-                            color: Colors.red,
-                            onPressed: () => _sendTestCommand('/test_trigger_alarm', 'Trigger Alarm'),
-                          ),
-                          _buildTestButton(
-                            icon: Icons.notifications_off,
-                            label: 'Turn Off Alarm',
-                            color: Colors.orange,
-                            onPressed: () => _sendTestCommand('/test_turn_off_alarm', 'Turn Off Alarm'),
-                          ),
-                          _buildTestButton(
-                            icon: Icons.lightbulb,
-                            label: 'Turn On Lights',
-                            color: AppTheme.pineGreen,
-                            onPressed: () => _sendTestCommand('/test_turn_on_lights', 'Turn On Lights'),
-                          ),
-                          _buildTestButton(
-                            icon: Icons.lightbulb_outline,
-                            label: 'Turn Off Lights',
-                            color: AppTheme.deepForestGreen,
-                            onPressed: () => _sendTestCommand('/test_turn_off_lights', 'Turn Off Lights'),
-                          ),
-                          _buildTestButton(
-                            icon: Icons.power_settings_new,
-                            label: 'Restart Gadget',
-                            color: Colors.grey,
-                            onPressed: () => _sendTestCommand('/test_restart_gadget', 'Restart Gadget'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ],
@@ -259,7 +356,7 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           height: 65,
-          selectedIndex: 3, // New index for test screen
+          selectedIndex: 3,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: [
             NavigationDestination(
@@ -280,7 +377,7 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
             NavigationDestination(
               icon: Icon(Icons.build_outlined, color: Colors.white.withOpacity(0.7)),
               selectedIcon: const Icon(Icons.build, color: Colors.white),
-              label: 'Test',
+              label: 'Utility',
             ),
           ],
           onDestinationSelected: (index) {
@@ -307,7 +404,7 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
                 );
                 break;
               case 3:
-                // Already on test screen
+                // Already on utility screen
                 break;
             }
           },
@@ -316,7 +413,46 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
     );
   }
 
-  Widget _buildTestButton({
+  List<Widget> _buildUtilityButtons() {
+    return [
+      _buildUtilityButton(
+        icon: Icons.warning,
+        label: 'Trigger Alarm',
+        color: Colors.red,
+        onPressed: () => _sendTestCommand('/test_trigger_alarm', 'Trigger Alarm'),
+      ),
+      _buildUtilityButton(
+        icon: Icons.notifications_off,
+        label: 'Turn Off Alarm',
+        color: Colors.orange,
+        onPressed: () => _sendTestCommand('/test_turn_off_alarm', 'Turn Off Alarm'),
+      ),
+      _buildUtilityButton(
+        icon: Icons.lightbulb,
+        label: 'Turn On Lights',
+        color: AppTheme.pineGreen,
+        onPressed: () => _sendTestCommand('/test_turn_on_lights', 'Turn On Lights'),
+      ),
+      _buildUtilityButton(
+        icon: Icons.lightbulb_outline,
+        label: 'Turn Off Lights',
+        color: AppTheme.deepForestGreen,
+        onPressed: () => _sendTestCommand('/test_turn_off_lights', 'Turn Off Lights'),
+      ),
+      _buildUtilityButton(
+        icon: Icons.power_settings_new,
+        label: 'Restart Gadget',
+        color: Colors.grey,
+        onPressed: () => _confirmDestructiveAction(
+          'Restart Gadget',
+          'Are you sure you want to restart the gadget? This will temporarily disconnect all services.',
+          () => _sendTestCommand('/test_restart_gadget', 'Restart Gadget'),
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildUtilityButton({
     required IconData icon,
     required String label,
     required Color color,
@@ -325,7 +461,7 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
     return SizedBox(
       width: 160,
       child: ElevatedButton(
-        onPressed: _isLoading ? null : onPressed,
+        onPressed: onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: color.withOpacity(0.8),
           foregroundColor: Colors.white,
@@ -353,6 +489,36 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDestructiveAction(
+    String title,
+    String message,
+    VoidCallback onConfirm,
+  ) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              onConfirm();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Confirm'),
+          ),
+        ],
       ),
     );
   }
