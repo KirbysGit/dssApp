@@ -385,13 +385,13 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
         borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-            child: Column(
+          child: Column(
             children: [
               // Connection Steps Indicator with Icons
               SizedBox(
                 height: 80,
                 child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(
                     _connectionSteps.length,
                     (index) => _buildStepIndicatorWithIcon(index),
@@ -401,10 +401,10 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
 
               const SizedBox(height: 24),
 
-              // Lottie Animation based on connection state
+              // Lottie Animation with Glow Effect
               Stack(
                 alignment: Alignment.center,
-              children: [
+                children: [
                   // Background glow
                   AnimatedBuilder(
                     animation: _pulseController,
@@ -448,7 +448,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: AppTheme.pineGreen.withOpacity(0.3),
+                              color: Colors.white.withOpacity(0.3),
                               width: 2,
                             ),
                           ),
@@ -461,7 +461,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
 
               const SizedBox(height: 24),
 
-              // Current Step Text with Enhanced Animation
+              // Current Step Text with Animation
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
                 child: Column(
@@ -495,7 +495,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
 
               const SizedBox(height: 16),
 
-              // Network Information with Enhanced Styling
+              // Network Information
               if (_connectionStep >= 1)
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -544,7 +544,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
 
               const SizedBox(height: 16),
 
-              // Enhanced Progress Bar
+              // Enhanced Progress Bar with Gradient
               Stack(
                 children: [
                   // Background progress
@@ -554,7 +554,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
                       value: _progress,
                       backgroundColor: Colors.white.withOpacity(0.2),
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        AppTheme.pineGreen.withOpacity(0.8),
+                        Colors.white.withOpacity(0.8),
                       ),
                       minHeight: 6,
                     ),
@@ -597,23 +597,23 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
 
               const SizedBox(height: 16),
 
-              // Progress Percentage with Animation
+              // Progress Percentage
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                          child: Text(
+                child: Text(
                   '${(_progress * 100).toInt()}%',
                   key: ValueKey<int>((_progress * 100).toInt()),
-                            style: TextStyle(
+                  style: TextStyle(
                     color: Colors.white.withOpacity(0.8),
                     fontSize: isLargeScreen ? 16 : 14,
                     fontFamily: 'SF Pro Text',
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                    ],
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -671,7 +671,7 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
             ),
           ),
           const SizedBox(height: 4),
-                  Container(
+          Container(
             height: 2,
             margin: const EdgeInsets.symmetric(horizontal: 4),
             color: isCompleted
@@ -688,163 +688,112 @@ class _ConnectingScreenState extends ConsumerState<ConnectingScreen> with Ticker
     final size = MediaQuery.of(context).size;
     final isLargeScreen = size.width > 600;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Animated Background with Gradient Waves
-          AnimatedBuilder(
-            animation: _backgroundController,
-            builder: (context, child) {
-              return Container(
-                    decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppTheme.deepForestGreen.withOpacity(0.95),
-                      AppTheme.pineGreen.withOpacity(0.85),
-                      AppTheme.mistGray.withOpacity(0.9),
-                    ],
-                    stops: [
-                      0.0,
-                      _backgroundController.value,
-                      1.0,
-                    ],
-                  ),
-                ),
-                child: CustomPaint(
-                  painter: WavesPainter(
-                    animation: _backgroundController,
-                      color: Colors.white.withOpacity(0.1),
-                  ),
-                ),
-              );
-            },
-          ),
-
-          // Main Content
-          SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isLargeScreen ? 48.0 : 24.0,
-                    ),
-                    child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                      children: [
-                    SizedBox(height: size.height * 0.05),
-                    // Animated Logo
-                    Hero(
-                      tag: 'logo',
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.pineGreen.withOpacity(0.3),
-                              blurRadius: 20,
-                              spreadRadius: 5,
-                            ),
-                          ],
-                        ),
-                        child: Image.asset(
-                          'assets/images/dssLogo.png',
-                          height: isLargeScreen ? 120 : 80,
-                        ),
-                      ),
-                    ).animate()
-                      .fadeIn(duration: const Duration(milliseconds: 600))
-                      .scale(delay: const Duration(milliseconds: 200)),
-                    
-                    const SizedBox(height: 48),
-
-                    // Use the new connection card
-                    _buildConnectionCard(isLargeScreen),
-
-                    const SizedBox(height: 24),
-
-                    // Help Button with Animation
-                    TextButton.icon(
-                      onPressed: _toggleTroubleshooting,
-                      icon: Icon(
-                        _showTroubleshooting ? Icons.close : Icons.help_outline,
-                        color: Colors.white.withOpacity(0.8),
-                      ),
-                      label: Text(
-                        _showTroubleshooting ? 'Hide Tips' : 'Need Help?',
-                          style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                            fontSize: isLargeScreen ? 16 : 14,
-                          fontFamily: 'SF Pro Text',
-                        ),
-                      ),
-                    ).animate()
-                      .fadeIn(delay: const Duration(milliseconds: 800)),
-
-                    // Troubleshooting Tips with Enhanced Animation
-                    if (_showTroubleshooting)
-                      Container(
-                        margin: const EdgeInsets.only(top: 16),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.2),
-                            width: 1,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.tips_and_updates,
-                                  color: Colors.white,
-                                  size: isLargeScreen ? 24 : 20,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Troubleshooting Tips',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: isLargeScreen ? 18 : 16,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'SF Pro Display',
-                    ),
-                  ),
+    return AnimatedBuilder(
+      animation: _backgroundController,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppTheme.deepForestGreen.withOpacity(0.95),
+                AppTheme.pineGreen.withOpacity(0.85),
+                AppTheme.mistGray.withOpacity(0.9),
               ],
-                            ),
-                            const SizedBox(height: 12),
-                            _buildAnimatedTip(
-                              '• Ensure you\'re connected to the SecureScape WiFi network',
-                              delay: 0,
-                            ),
-                            _buildAnimatedTip(
-                              '• Check if the SecureScape device is powered on',
-                              delay: 100,
-                            ),
-                            _buildAnimatedTip(
-                              '• Try restarting the SecureScape device',
-                              delay: 200,
-                            ),
-                            _buildAnimatedTip(
-                              '• Verify your network settings',
-                              delay: 300,
-                            ),
-                          ],
-                        ),
-                      ).animate()
-                        .fadeIn()
-                        .slideY(begin: 0.2, end: 0),
-                  ],
-                ),
-              ),
+              stops: [0.0, _backgroundController.value, 1.0],
             ),
           ),
-        ],
-      ),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: [
+                // Animated Wave Background
+                CustomPaint(
+                  painter: WavesPainter(
+                    animation: _backgroundController,
+                    color: Colors.white.withOpacity(0.1),
+                  ),
+                  size: Size.infinite,
+                ),
+
+                // Main Content
+                SafeArea(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isLargeScreen ? 48.0 : 24.0,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(height: size.height * 0.05),
+                          // Animated Logo
+                          Hero(
+                            tag: 'logo',
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppTheme.pineGreen.withOpacity(0.3),
+                                    blurRadius: 20,
+                                    spreadRadius: 5,
+                                  ),
+                                ],
+                              ),
+                              child: Image.asset(
+                                'assets/images/dssLogo.png',
+                                height: isLargeScreen ? 120 : 80,
+                              ),
+                            ),
+                          ).animate()
+                            .fadeIn(duration: const Duration(milliseconds: 600))
+                            .scale(delay: const Duration(milliseconds: 200)),
+                          
+                          const SizedBox(height: 48),
+                          
+                          // Connection Card with Glass Effect
+                          _buildConnectionCard(isLargeScreen),
+                          
+                          const SizedBox(height: 24),
+                          
+                          // Help Button and Troubleshooting Tips
+                          _buildHelpSection(isLargeScreen),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHelpSection(bool isLargeScreen) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        TextButton.icon(
+          onPressed: _toggleTroubleshooting,
+          icon: Icon(
+            _showTroubleshooting ? Icons.close : Icons.help_outline,
+            color: Colors.white.withOpacity(0.8),
+          ),
+          label: Text(
+            _showTroubleshooting ? 'Hide Tips' : 'Need Help?',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: isLargeScreen ? 16 : 14,
+              fontFamily: 'SF Pro Text',
+            ),
+          ),
+        ).animate()
+          .fadeIn(delay: const Duration(milliseconds: 800)),
+      ],
     );
   }
 

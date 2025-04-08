@@ -371,109 +371,140 @@ Our mission is to enhance personal security in unpredictable environments throug
           _expandedTeamMembers[member['name'] as String] = !isExpanded;
         });
       },
-      child: Card(
-        elevation: isExpanded ? 8 : 4,
-        shape: RoundedRectangleBorder(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isExpanded ? 0.1 : 0.05),
+              blurRadius: isExpanded ? 8 : 4,
+              offset: Offset(0, isExpanded ? 4 : 2),
+            ),
+          ],
         ),
-        child: SingleChildScrollView(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Hero(
-                      tag: 'team_${member['name']}',
-                      child: CircleAvatar(
-                        radius: isLargeScreen ? 40 : 36,
-                        backgroundColor: AppTheme.pineGreen.withOpacity(0.1),
-                        backgroundImage: AssetImage(member['image']),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            member['name'],
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.deepForestGreen,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            member['role'],
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: AppTheme.pineGreen,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      isExpanded ? Icons.expand_less : Icons.expand_more,
-                      color: AppTheme.pineGreen,
-                    ),
-                  ],
-                ),
-                if (isExpanded) ...[
-                  const SizedBox(height: 16),
+        child: Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header section (always visible)
                   Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.pineGreen.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    padding: const EdgeInsets.all(16),
+                    color: Colors.white,
+                    child: Row(
                       children: [
-                        Text(
-                          'Responsibilities:',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.deepForestGreen,
+                        Hero(
+                          tag: 'team_${member['name']}',
+                          child: CircleAvatar(
+                            radius: isLargeScreen ? 40 : 36,
+                            backgroundColor: AppTheme.pineGreen.withOpacity(0.1),
+                            backgroundImage: AssetImage(member['image']),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        ...List<Widget>.from(
-                          (member['details'] as List<dynamic>).map(
-                            (detail) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle,
-                                    size: 16,
-                                    color: AppTheme.pineGreen,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      detail,
-                                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        color: AppTheme.deepForestGreen.withOpacity(0.8),
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                member['name'],
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.deepForestGreen,
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 4),
+                              Text(
+                                member['role'],
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: AppTheme.pineGreen,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        AnimatedRotation(
+                          duration: const Duration(milliseconds: 300),
+                          turns: isExpanded ? 0.5 : 0.0,
+                          child: Icon(
+                            Icons.expand_more,
+                            color: AppTheme.pineGreen,
                           ),
                         ),
                       ],
                     ),
-                  ).animate()
-                    .fadeIn()
-                    .moveY(begin: 20, end: 0),
+                  ),
+                  // Expandable content
+                  AnimatedCrossFade(
+                    firstChild: const SizedBox(height: 0),
+                    secondChild: Container(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      color: Colors.white,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.pineGreen.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Responsibilities:',
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.deepForestGreen,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ...List<Widget>.from(
+                              (member['details'] as List<dynamic>).map(
+                                (detail) => Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle,
+                                        size: 16,
+                                        color: AppTheme.pineGreen,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          detail,
+                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                            color: AppTheme.deepForestGreen.withOpacity(0.8),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    crossFadeState: isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                    duration: const Duration(milliseconds: 300),
+                    sizeCurve: Curves.easeInOut,
+                  ),
                 ],
-              ],
+              ),
             ),
           ),
         ),

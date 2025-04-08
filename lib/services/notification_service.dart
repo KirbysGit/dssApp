@@ -1,28 +1,39 @@
-import '../models/detection_log.dart';
+// lib/services/notification_service.dart
+
+// Description :
+// This file contains the NotificationService class which is responsible for :
+// - Sending notifications.
+// - Handling notification taps.
+
+
+// Importing Required Packages.
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/security_provider.dart';
 import 'dart:typed_data';
 import 'camera_service.dart';
-import '../screens/alert_screen.dart';
-import 'package:http/http.dart' as http;
-import 'image_storage_service.dart';
 import 'package:uuid/uuid.dart';
+import 'image_storage_service.dart';
+import '../screens/alert_screen.dart';
+import '../models/detection_log.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import '../providers/security_provider.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// Global navigator key for handling notification taps
+// Global Navigator Key.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// Notification Data Class.
 class NotificationData {
-  final String title;
-  final String body;
-  final DateTime timestamp;
-  final String? cameraName;
-  final Uint8List? image;
-  final String? debugInfo;
+  final String title;         // Title.
+  final String body;          // Body.
+  final DateTime timestamp;   // Timestamp.
+  final String? cameraName;   // Camera Name.
+  final Uint8List? image;     // Image.
+  final String? debugInfo;    // Debug Info.
 
+  // Constructor.
   NotificationData({
     required this.title,
     required this.body,
@@ -32,6 +43,7 @@ class NotificationData {
     this.debugInfo,
   });
 
+  // Convert To JSON.
   Map<String, dynamic> toJson() => {
     'title': title,
     'body': body,
@@ -40,6 +52,7 @@ class NotificationData {
     'debugInfo': debugInfo,
   };
 
+  // Factory Constructor.
   factory NotificationData.fromJson(Map<String, dynamic> json) => NotificationData(
     title: json['title'] as String,
     body: json['body'] as String,
@@ -49,38 +62,58 @@ class NotificationData {
   );
 }
 
+// Notification Service Class.
 class NotificationService {
+  // Private Constructor.
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
 
+  // Flutter Local Notifications Plugin.
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+
+  // Camera Service.
   final CameraService _cameraService = CameraService();
+
+  // Image Storage Service.
   final ImageStorageService _imageStorage = ImageStorageService();
   late ProviderContainer _container;
-  Timer? _pollTimer;
+  Timer? _pollTimer;  
+
+  // Notification Stream Controller.
   final _notificationStreamController = StreamController<NotificationData>.broadcast();
   
+  // Notification Stream.
   Stream<NotificationData> get notificationStream => _notificationStreamController.stream;
   
   // Queue to manage notifications
   final List<NotificationData> _notificationQueue = [];
   static const int maxQueueSize = 5;  // Maximum number of notifications to keep
 
-  // Cache the latest notification data for handling taps
+  // Cache Latest Notification.
   NotificationData? _latestNotification;
   Uint8List? _latestImage;
 
+  // UUID.
   final _uuid = Uuid();
 
+  // App In Foreground.
+  bool _isAppInForeground = true;
+
+  // Set App Lifecycle State.
+  void setAppLifecycleState(bool isInForeground) {
+    _isAppInForeground = isInForeground;
+  }
+
+  // Initialize.
   Future<void> initialize(ProviderContainer container) async {
     _container = container;
     
-    // Initialize notification settings
+    // Initialize Notification Settings.
     const initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
     
-    // Create the notification channel with high importance
+    // Create The Notification Channel With High Importance.
     const androidChannel = AndroidNotificationChannel(
       'person_detection_channel',
       'Person Detection',
@@ -92,7 +125,7 @@ class NotificationService {
       enableLights: true,
     );
 
-    // Initialize notifications and create channel
+    // Initialize Notifications And Create Channel.
     await _notifications.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (details) {
@@ -100,12 +133,13 @@ class NotificationService {
       },
     );
 
-    // Create the Android-specific notification channel
+    // Create The Android-Specific Notification Channel.
     final platform = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await platform?.createNotificationChannel(androidChannel);
   }
 
+  // Handle Notification Tap.
   void _handleNotificationTap(NotificationResponse details) {
     debugPrint('Notification tapped: ${details.payload}');
     
@@ -113,7 +147,7 @@ class NotificationService {
       try {
         final data = NotificationData.fromJson(jsonDecode(details.payload!));
         
-        // Navigate to AlertScreen
+        // Navigate To AlertScreen.
         navigatorKey.currentState?.push(MaterialPageRoute(
           builder: (context) => AlertScreen(
             image: _latestImage,
@@ -127,40 +161,45 @@ class NotificationService {
     }
   }
 
-  // Test method to verify notifications
+  // Test Method To Verify Notifications.
   Future<void> sendTestNotification() async {
     debugPrint('Sending test notification...');
     await _showNotification(null, isTest: true);
   }
 
+  // Start Polling.
   void startPolling() {
     _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _checkForPersonDetection());
   }
 
+  // Stop Polling.
   void stopPolling() {
     _pollTimer?.cancel();
     _pollTimer = null;
   }
 
+  // Check For Person Detection.
   Future<void> _checkForPersonDetection() async {
     try {
+
+      // Get The Gadget IP.
       final gadgetIp = _container.read(gadgetIpProvider);
-      /// debugPrint('Checking for person detection...');
+
+      // Check For Person Detection.
       final response = await _cameraService.checkPersonDetection(gadgetIp);
-      // debugPrint('Person detection response: $response');
       
+      // If The Response Is Not Null.
       if (response != null) {
+        // Get The Person Detection Status.
         final bool isPersonDetected = response['personDetected'] ?? false;
-        /// debugPrint('Person detected status: $isPersonDetected');
         
+        // If The Person Is Detected.
         if (isPersonDetected) {
-          debugPrint('Person detected - fetching latest image...');
-          
-          // Get the camera URL from the response
+          // Get The Camera URL.
           final String? cameraUrl = response['cameraUrl'] as String?;
           final String? cameraName = response['cameraName'] as String?;
           
-          // Get the camera URL from the cameras array if not provided directly
+          // Get The Camera URL.
           final String imageUrl = cameraUrl ?? 
             (response['cameras'] as List?)?.firstWhere(
               (camera) => camera['url'] != null,
@@ -168,44 +207,46 @@ class NotificationService {
             )['url'] as String? ?? 
             'http://$gadgetIp/capture';
 
+          // Create The Log ID.
           final String logId = DateTime.now().millisecondsSinceEpoch.toString();
           
-          // Create initial detection log
+          // Create The Detection Log.
           final detectionLog = DetectionLog(
-            id: logId,
-            timestamp: DateTime.now(),
-            cameraName: cameraName ?? 'Unknown Camera',
-            cameraUrl: cameraUrl ?? '',
-            imageUrl: imageUrl,
-            isAcknowledged: false,
-            wasAlarmTriggered: true,
+            id: logId,                                  // Log ID.
+            timestamp: DateTime.now(),                  // Timestamp.
+            cameraName: cameraName ?? 'Unknown Camera', // Camera Name.
+            cameraUrl: cameraUrl ?? '',                 // Camera URL.
+            imageUrl: imageUrl,                         // Image URL.
+            isAcknowledged: false,                      // Is Acknowledged.
+            wasAlarmTriggered: true,                    // Was Alarm Triggered.
           );
-          
-          // Save initial log
+
+          // Save The Initial Log.
           _container.read(detectionLogsProvider.notifier).addDetectionLog(detectionLog);
           
-          // Update security status
+          // Update Security Status.
           _container.read(securityStatusProvider.notifier).updateWithDetection(
-            isPersonDetected: true,
-            lastDetectionTime: DateTime.now(),
+            isPersonDetected: true,                       // Is Person Detected.
+            lastDetectionTime: DateTime.now(),            // Last Detection Time.
             detectedCamera: {
-              'name': cameraName,
-              'url': cameraUrl,
+              'name': cameraName,                         // Camera Name.
+              'url': cameraUrl,                           // Camera URL.
             },
           );
 
-          // Try to fetch image
+          // Try To Fetch Image.
           final image = await _fetchImageWithRetry(imageUrl);
           String? imagePath;
           
+          // If The Image Is Not Null.
           if (image != null) {
             debugPrint('Image fetched successfully, saving to storage...');
             try {
-              // Save image to local storage
+              // Save Image To Local Storage.
               imagePath = await _imageStorage.saveImage(image, logId);
               debugPrint('Image saved to: $imagePath');
               
-              // Update log with image path and temporary bytes
+              // Update Log With Image Path And Temporary Bytes.
               _container.read(detectionLogsProvider.notifier).addDetectionLog(
                 detectionLog.copyWith(
                   imagePath: imagePath,
@@ -219,7 +260,7 @@ class NotificationService {
             debugPrint('Image fetch failed');
           }
           
-          // Show notification
+          // Show Notification.
           await _showNotification(
             image,
             cameraName: cameraName,
@@ -232,15 +273,18 @@ class NotificationService {
     }
   }
 
+  // Show Notification.
   Future<void> _showNotification(
     Uint8List? imageBytes, {
     bool isTest = false,
     String? cameraName,
     String? cameraUrl,
   }) async {
-    debugPrint('Showing notification with image: ${imageBytes != null ? '${imageBytes.length} bytes' : 'null'}');
     
-    final gadgetIp = _container.read(gadgetIpProvider);
+    // Get The Gadget IP.
+    final gadgetIp = _container.read(gadgetIpProvider); 
+
+    // Create The Notification.
     final notification = NotificationData(
       title: isTest ? 'Test Notification' : 'Person Detected!',
       body: isTest 
@@ -252,14 +296,14 @@ class NotificationService {
       debugInfo: 'Gadget IP: $gadgetIp${cameraUrl != null ? '\nCamera URL: $cameraUrl' : ''}',
     );
 
-    // Cache the latest notification data and image
+    // Cache The Latest Notification Data And Image.
     _latestNotification = notification;
     _latestImage = imageBytes;
 
-    // Add to queue and maintain max size
+    // Add To Queue And Maintain Max Size.
     _addToNotificationQueue(notification);
 
-    // Configure the notification style
+    // Configure The Notification Style.
     final BigTextStyleInformation styleInfo = BigTextStyleInformation(
       notification.body,
       htmlFormatBigText: true,
@@ -269,7 +313,7 @@ class NotificationService {
       htmlFormatSummaryText: true,
     );
 
-    // Create the notification details
+    // Create The Notification Details.
     final androidDetails = AndroidNotificationDetails(
       'person_detection_channel',
       'Person Detection',
@@ -287,8 +331,10 @@ class NotificationService {
       ],
     );
 
+    // Create The Notification Details.
     final notificationDetails = NotificationDetails(android: androidDetails);
 
+    // Show The Notification.
     try {
       await _notifications.show(
         DateTime.now().millisecondsSinceEpoch % 100000,
@@ -303,20 +349,20 @@ class NotificationService {
     }
   }
 
-  // Get all notifications
+  // Get All Notifications.
   List<NotificationData> getNotifications() => List.unmodifiable(_notificationQueue);
 
-  // Clear all notifications
+  // Clear All Notifications.
   void clearNotifications() {
     _notificationQueue.clear();
     _notificationStreamController.add(NotificationData(
       title: '',
       body: '',
       timestamp: DateTime.now(),
-    )); // Trigger UI update
+    )); // Trigger UI Update.
   }
 
-  // Remove a specific notification
+  // Remove A Specific Notification.
   void removeNotification(int id) {
     _notificationQueue.removeWhere((notification) => notification.timestamp.millisecondsSinceEpoch == id);
     if (_notificationQueue.isNotEmpty) {
@@ -324,11 +370,13 @@ class NotificationService {
     }
   }
 
+  // Dispose.
   void dispose() {
     stopPolling();
     _notificationStreamController.close();
   }
 
+  // Add To Notification Queue.
   void _addToNotificationQueue(NotificationData notification) {
     _notificationQueue.insert(0, notification);
     if (_notificationQueue.length > maxQueueSize) {
@@ -337,10 +385,15 @@ class NotificationService {
     _notificationStreamController.add(notification);
   }
 
+  // Fetch Image With Retry.
   Future<Uint8List?> _fetchImageWithRetry(String url, {int maxRetries = 3}) async {
+    // Attempt.
     int attempt = 0;
+
+    // While Attempt Is Less Than Max Retries.
     while (attempt < maxRetries) {
       try {
+        // Get The Image.
         final response = await http.get(Uri.parse(url)).timeout(
           const Duration(seconds: 5),
           onTimeout: () {
@@ -348,6 +401,7 @@ class NotificationService {
           },
         );
 
+        // If The Status Code Is 200 And The Content Type Is Image.
         if (response.statusCode == 200 && 
             response.headers['content-type']?.contains('image/') == true) {
           return response.bodyBytes;
@@ -356,21 +410,22 @@ class NotificationService {
       } catch (e) {
         attempt++;
         if (attempt >= maxRetries) {
-          print('All retry attempts failed for image fetch: $e');
+          print('All Retry Attempts Failed For Image Fetch: $e');
           return null;
         }
-        print('Retry attempt $attempt after error: $e');
+        print('Retry Attempt $attempt After Error: $e');
         await Future.delayed(Duration(seconds: attempt * 2));
       }
     }
     return null;
   }
 
+  // Handle Person Detection.
   Future<void> handlePersonDetection(String cameraName, String cameraUrl, DetectionLogsNotifier logsNotifier) async {
     final logId = _uuid.v4();
     print('Creating detection log with ID: $logId');
 
-    // Create initial log without image
+    // Create Initial Log Without Image.
     final detectionLog = DetectionLog(
       id: logId,
       timestamp: DateTime.now(),
@@ -380,27 +435,27 @@ class NotificationService {
       imagePath: null,
     );
 
-    // Start image fetch process
+    // Start Image Fetch Process.
     try {
       final imageBytes = await _fetchImageWithRetry(cameraUrl);
       String? imagePath;
       
       if (imageBytes != null) {
-        // Save image to storage and get path
+        // Save Image To Storage And Get Path.
         imagePath = await _imageStorage.saveImage(imageBytes, logId);
         print('Image saved successfully at path: $imagePath');
       }
 
-      // Create updated log with image information
+      // Create Updated Log With Image Information.
       final updatedLog = detectionLog.copyWith(
         imagePath: imagePath,
         imageBytes: imageBytes,
       );
 
-      // Add log to provider
+      // Add Log To Provider.
       logsNotifier.addDetectionLog(updatedLog);
 
-      // Show notification
+      // Show Notification.
       await _showNotification(
         imageBytes,
         cameraName: cameraName,
@@ -408,7 +463,7 @@ class NotificationService {
       );
     } catch (e) {
       print('Error during image fetch and notification: $e');
-      // Still show notification even if image fetch fails
+      // Still Show Notification Even If Image Fetch Fails.
       logsNotifier.addDetectionLog(detectionLog);
       await _showNotification(
         null,
@@ -416,5 +471,48 @@ class NotificationService {
         cameraUrl: cameraUrl,
       );
     }
+  }
+
+  // Show Notification.
+  Future<void> showNotification({
+    required String title,
+    required String body,
+    String? cameraName,
+    String? cameraUrl,
+    String? imageUrl,
+  }) async {
+    // Show System Notification Regardless Of App State.
+    final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    const androidPlatformChannelSpecifics = AndroidNotificationDetails(
+      'security_alerts',
+      'Security Alerts',
+      channelDescription: 'Notifications for security alerts',
+      importance: Importance.high,
+      priority: Priority.high,
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      visibility: NotificationVisibility.public,
+    );
+    const platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+    );
+
+    // Show The Notification.
+    await flutterLocalNotificationsPlugin.show(
+      DateTime.now().millisecondsSinceEpoch % 100000,
+      title,
+      body,
+      platformChannelSpecifics,
+    );
+
+    // Update The Security Status Which Will Trigger In-App Alert.
+    _container.read(securityStatusProvider.notifier).updateWithDetection(
+      isPersonDetected: true,
+      lastDetectionTime: DateTime.now(),
+      detectedCamera: {
+        'name': cameraName,
+        'url': cameraUrl,
+      },
+    );
   }
 } 

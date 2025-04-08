@@ -1,3 +1,10 @@
+// lib/routes.dart
+
+// Description :
+// This file contains the AppRoutes class which is responsible for :
+// - Providing the routes for the app.
+
+// Importing Flutter Material Package.
 import 'package:flutter/material.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/about_screen.dart';

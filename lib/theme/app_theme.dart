@@ -1,13 +1,21 @@
+// lib/theme/app_theme.dart
+
+// Description :
+// This file contains the AppTheme class which is responsible for :
+// - Providing the theme data for the app.
+
+// Importing Flutter Material Package.
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Colors
+  // Colors.
   static const Color deepForestGreen = Color(0xFF2C5530);
   static const Color pineGreen = Color(0xFF3E7B4F);
   static const Color mossGreen = Color(0xFF89B399);
   static const Color mistGray = Color(0xFFF5F7F5);
   static const Color accentGold = Color(0xFFD4AF37);
 
+  // Light Theme.
   static ThemeData get lightTheme {
     return ThemeData(
       primaryColor: pineGreen,
@@ -38,6 +46,7 @@ class AppTheme {
     );
   }
 
+  // Card Decoration.
   static BoxDecoration get cardDecoration {
     return BoxDecoration(
       color: Colors.white,
@@ -52,41 +61,60 @@ class AppTheme {
     );
   }
 
-  // AppBar theme
+  // AppBar Background Color.
   static const Color appBarBackgroundColor = Color(0xFF1A2F25);
+
+  // AppBar Foreground Color.
   static const Color appBarForegroundColor = Color(0xFFE6EBE4);
 
-  // Card theme
+  // Card Elevation.
   static const double cardElevation = 2.0;
+
+  // Card Border Radius.
   static final BorderRadius cardBorderRadius = BorderRadius.circular(16.0);
 
-  // Button themes
+  // Elevated Button Background Color.
   static const Color elevatedButtonBackgroundColor = Color(0xFF2C5530);
+
+  // Elevated Button Foreground Color.
+
+
+  // Elevated Button Padding.
   static const Color elevatedButtonForegroundColor = Color(0xFFE6EBE4);
+
+  // Elevated Button Border Radius.
   static const EdgeInsets elevatedButtonPadding = EdgeInsets.symmetric(horizontal: 24, vertical: 12);
   static final BorderRadius elevatedButtonBorderRadius = BorderRadius.circular(12);
 
-  // Text themes
+  // Text Themes.
   static const TextStyle headlineLarge = TextStyle(
     color: deepForestGreen,
     fontWeight: FontWeight.bold,
-  );
+  );  
+
+  // Headline Medium.
   static const TextStyle headlineMedium = TextStyle(
     color: deepForestGreen,
     fontWeight: FontWeight.w600,
   );
+
+  // Body Large.
   static const TextStyle bodyLarge = TextStyle(
     color: deepForestGreen,
   );
+
+  // Body Medium.
   static const TextStyle bodyMedium = TextStyle(
     color: pineGreen,
   );
 
-  // Icon theme
+  // Icon Size.
   static const double iconSize = 24.0;
+
+  // Icon Color.
   static const Color iconColor = pineGreen;
 
-  // Custom button style
+  // Primary Button Style.
   static ButtonStyle get primaryButton => ElevatedButton.styleFrom(
     backgroundColor: pineGreen,
     foregroundColor: mistGray,
@@ -97,6 +125,7 @@ class AppTheme {
     elevation: 2,
   );
 
+  // Gradient Background.
   static BoxDecoration get gradientBackground => BoxDecoration(
     gradient: LinearGradient(
       begin: Alignment.topCenter,

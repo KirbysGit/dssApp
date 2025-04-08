@@ -20,8 +20,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
   late Animation<double> _fadeInAnimation;
   late Animation<Offset> _slideAnimation;
   
-  // Parallax and tilt effect variables
-  Offset _parallaxOffset = Offset.zero;
+  // Tilt effect variables
   double _tiltX = 0.0;
   double _tiltY = 0.0;
   final List<ParticleData> _particles = [];
@@ -125,247 +124,234 @@ class _WelcomeScreenState extends State<WelcomeScreen> with TickerProviderStateM
     final isLargeScreen = size.width > 600;
 
     return Scaffold(
-      body: GestureDetector(
-        onPanUpdate: (details) {
-          setState(() {
-            _parallaxOffset += Offset(
-              details.delta.dx * 0.1,
-              details.delta.dy * 0.1,
-            );
-          });
-        },
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Parallax Background
-            Transform.translate(
-              offset: _parallaxOffset,
-              child: AnimatedBuilder(
-                animation: _backgroundController,
-                builder: (context, child) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppTheme.deepForestGreen.withOpacity(0.95),
-                          AppTheme.pineGreen.withOpacity(0.85),
-                          AppTheme.mistGray.withOpacity(0.9),
-                        ],
-                        stops: [0.0, _backgroundController.value, 1.0],
-                      ),
-                    ),
-                    child: CustomPaint(
-                      painter: WavesPainter(
-                        animation: _backgroundController,
-                        color: Colors.white.withOpacity(0.1),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Static Background with Gradient
+          AnimatedBuilder(
+            animation: _backgroundController,
+            builder: (context, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppTheme.deepForestGreen.withOpacity(0.95),
+                      AppTheme.pineGreen.withOpacity(0.85),
+                      AppTheme.mistGray.withOpacity(0.9),
+                    ],
+                    stops: [0.0, _backgroundController.value, 1.0],
+                  ),
+                ),
+                child: CustomPaint(
+                  painter: WavesPainter(
+                    animation: _backgroundController,
+                    color: Colors.white.withOpacity(0.1),
+                  ),
+                ),
+              );
+            },
+          ),
 
-            // Particle System
-            CustomPaint(
-              painter: ParticlePainter(particles: _particles),
-            ),
+          // Particle System
+          CustomPaint(
+            painter: ParticlePainter(particles: _particles),
+          ),
 
-            // Main Content with 3D Tilt
-            Transform(
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.001)
-                ..rotateX(_tiltX)
-                ..rotateY(_tiltY),
-              alignment: Alignment.center,
-              child: SafeArea(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isLargeScreen ? size.width * 0.1 : 24.0,
-                      vertical: size.height * 0.05,
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Logo and Title Section with Enhanced Animation
-                        FadeTransition(
-                          opacity: _fadeInAnimation,
-                          child: SlideTransition(
-                            position: _slideAnimation,
-                            child: Column(
-                              children: [
-                                // Animated Logo with Glow
-                                AnimatedBuilder(
-                                  animation: _pulseController,
-                                  builder: (context, child) {
-                                    return Container(
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: AppTheme.pineGreen.withOpacity(0.3 * _pulseController.value),
-                                            blurRadius: 30 * _pulseController.value,
-                                            spreadRadius: 5 * _pulseController.value,
-                                          ),
-                                        ],
-                                      ),
-                                      child: Hero(
-                                        tag: 'logo',
-                                        child: Image.asset(
-                                          'assets/images/dssLogo.png',
-                                          height: isLargeScreen ? 200 : 150,
+          // Main Content with 3D Tilt
+          Transform(
+            transform: Matrix4.identity()
+              ..setEntry(3, 2, 0.001)
+              ..rotateX(_tiltX)
+              ..rotateY(_tiltY),
+            alignment: Alignment.center,
+            child: SafeArea(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isLargeScreen ? size.width * 0.1 : 24.0,
+                    vertical: size.height * 0.05,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Logo and Title Section with Enhanced Animation
+                      FadeTransition(
+                        opacity: _fadeInAnimation,
+                        child: SlideTransition(
+                          position: _slideAnimation,
+                          child: Column(
+                            children: [
+                              // Animated Logo with Glow
+                              AnimatedBuilder(
+                                animation: _pulseController,
+                                builder: (context, child) {
+                                  return Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppTheme.pineGreen.withOpacity(0.3 * _pulseController.value),
+                                          blurRadius: 30 * _pulseController.value,
+                                          spreadRadius: 5 * _pulseController.value,
                                         ),
+                                      ],
+                                    ),
+                                    child: Hero(
+                                      tag: 'logo',
+                                      child: Image.asset(
+                                        'assets/images/dssLogo.png',
+                                        height: isLargeScreen ? 200 : 150,
                                       ),
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 24),
-                                // Title with Glassmorphism
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: BackdropFilter(
-                                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 24,
-                                        vertical: 16,
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 24),
+                              // Title with Glassmorphism
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(20),
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 24,
+                                      vertical: 16,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.2),
+                                        width: 1,
                                       ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: Colors.white.withOpacity(0.2),
-                                          width: 1,
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          'Welcome to SecureScape',
+                                          style: TextStyle(
+                                            fontSize: isLargeScreen ? 36 : 28,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                            letterSpacing: 1.2,
+                                            fontFamily: 'SF Pro Display',
+                                          ),
+                                          textAlign: TextAlign.center,
                                         ),
-                                      ),
-                                      child: Column(
-                                        children: [
-                                          Text(
-                                            'Welcome to SecureScape',
-                                            style: TextStyle(
-                                              fontSize: isLargeScreen ? 36 : 28,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                              letterSpacing: 1.2,
-                                              fontFamily: 'SF Pro Display',
-                                            ),
-                                            textAlign: TextAlign.center,
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Your Portable Security Solution',
+                                          style: TextStyle(
+                                            fontSize: isLargeScreen ? 20 : 16,
+                                            color: Colors.white.withOpacity(0.9),
+                                            letterSpacing: 0.5,
+                                            fontFamily: 'SF Pro Text',
                                           ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Your Portable Security Solution',
-                                            style: TextStyle(
-                                              fontSize: isLargeScreen ? 20 : 16,
-                                              color: Colors.white.withOpacity(0.9),
-                                              letterSpacing: 0.5,
-                                              fontFamily: 'SF Pro Text',
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ],
-                                      ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        SizedBox(height: size.height * 0.08),
-
-                        // Action Buttons with Enhanced Animation
-                        FadeTransition(
-                          opacity: _fadeInAnimation,
-                          child: Column(
-                            children: [
-                              _buildActionButton(
-                                context: context,
-                                icon: Icons.link,
-                                label: 'Pair Your SecureScape',
-                                description: 'Connect and configure your security device',
-                                onPressed: () => Navigator.pushNamed(context, '/connecting'),
-                              ).animate()
-                                .fadeIn(delay: const Duration(milliseconds: 400))
-                                .slideX(begin: -0.2, end: 0),
-                              const SizedBox(height: 16),
-                              _buildActionButton(
-                                context: context,
-                                icon: Icons.info_outline,
-                                label: 'About SecureScape',
-                                description: 'Learn more about our security solution',
-                                onPressed: () => Navigator.pushNamed(context, '/about'),
-                                isSecondary: true,
-                              ).animate()
-                                .fadeIn(delay: const Duration(milliseconds: 600))
-                                .slideX(begin: 0.2, end: 0),
+                              ),
                             ],
                           ),
                         ),
+                      ),
 
-                        SizedBox(height: size.height * 0.08),
+                      SizedBox(height: size.height * 0.08),
 
-                        // Footer with Animated Gradient
-                        FadeTransition(
-                          opacity: _fadeInAnimation,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 16,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white.withOpacity(0.1),
-                                  Colors.white.withOpacity(0.05),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.1),
-                                width: 1,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Secure your space, anywhere.',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.white.withOpacity(0.7),
-                                    letterSpacing: 0.5,
-                                    fontFamily: 'SF Pro Text',
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '© 2024 SecureScape',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white.withOpacity(0.5),
-                                    fontFamily: 'SF Pro Text',
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
+                      // Action Buttons with Enhanced Animation
+                      FadeTransition(
+                        opacity: _fadeInAnimation,
+                        child: Column(
+                          children: [
+                            _buildActionButton(
+                              context: context,
+                              icon: Icons.link,
+                              label: 'Pair Your SecureScape',
+                              description: 'Connect and configure your security device',
+                              onPressed: () => Navigator.pushNamed(context, '/connecting'),
+                            ).animate()
+                              .fadeIn(delay: const Duration(milliseconds: 400))
+                              .slideX(begin: -0.2, end: 0),
+                            const SizedBox(height: 16),
+                            _buildActionButton(
+                              context: context,
+                              icon: Icons.info_outline,
+                              label: 'About SecureScape',
+                              description: 'Learn more about our security solution',
+                              onPressed: () => Navigator.pushNamed(context, '/about'),
+                              isSecondary: true,
+                            ).animate()
+                              .fadeIn(delay: const Duration(milliseconds: 600))
+                              .slideX(begin: 0.2, end: 0),
+                          ],
+                        ),
+                      ),
+
+                      SizedBox(height: size.height * 0.08),
+
+                      // Footer with Animated Gradient
+                      FadeTransition(
+                        opacity: _fadeInAnimation,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white.withOpacity(0.1),
+                                Colors.white.withOpacity(0.05),
                               ],
                             ),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.1),
+                              width: 1,
+                            ),
                           ),
-                        ).animate()
-                          .fadeIn(delay: const Duration(milliseconds: 800))
-                          .slideY(begin: 0.2, end: 0),
-                      ],
-                    ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'Secure your space, anywhere.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.7),
+                                  letterSpacing: 0.5,
+                                  fontFamily: 'SF Pro Text',
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '© 2024 SecureScape',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white.withOpacity(0.5),
+                                  fontFamily: 'SF Pro Text',
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ).animate()
+                        .fadeIn(delay: const Duration(milliseconds: 800))
+                        .slideY(begin: 0.2, end: 0),
+                    ],
                   ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

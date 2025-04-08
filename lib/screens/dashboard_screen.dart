@@ -483,10 +483,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
               controller: ipController,
               decoration: const InputDecoration(
                 labelText: 'IP Address',
-                hintText: '192.168.8.225',
+                hintText: '192.168.8.207',
                 helperText: 'Enter the IP address of your SecureScape gadget',
+                prefixIcon: Icon(Icons.router),
+                border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Default IP: 192.168.8.207',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

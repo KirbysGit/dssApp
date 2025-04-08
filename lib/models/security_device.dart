@@ -1,12 +1,15 @@
+// lib/models/security_device.dart
+
 class SecurityDevice {
-  final String id;
-  final String name;
-  final DeviceType type;
-  final String ipAddress;
-  bool isOnline;
-  bool isMotionDetected;
-  DateTime? lastMotionDetected;
+  final String id;              // Unique Identifier For Security Device.
+  final String name;            // Name Of The Security Device.
+  final DeviceType type;        // Type Of The Security Device.
+  final String ipAddress;       // IP Address Of The Security Device.
+  bool isOnline;                // Whether The Device Is Online.
+  bool isMotionDetected;        // Whether The Motion Sensor Is Detected.
+  DateTime? lastMotionDetected; // Last Motion Detected Timestamp.
   
+  // Constructor For SecurityDevice.
   SecurityDevice({
     required this.id,
     required this.name,
@@ -17,6 +20,7 @@ class SecurityDevice {
     this.lastMotionDetected,
   });
   
+  // Convert SecurityDevice To JSON.
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -26,7 +30,8 @@ class SecurityDevice {
     'isMotionDetected': isMotionDetected,
     'lastMotionDetected': lastMotionDetected?.toIso8601String(),
   };
-  
+
+  // Create SecurityDevice From JSON.
   factory SecurityDevice.fromJson(Map<String, dynamic> json) => SecurityDevice(
     id: json['id'],
     name: json['name'],
@@ -43,6 +48,7 @@ class SecurityDevice {
   );
 }
 
+// Enum For The Type Of Security Device.
 enum DeviceType {
   camera,
   motionSensor,
