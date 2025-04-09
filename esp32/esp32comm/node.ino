@@ -1,28 +1,3 @@
-// -----------------------------------------------------------------
-//                           main.ino(node)
-//
-//
-// Description: Central point where the code runs on our 
-//              esp32-cam nodes.
-//
-// Name:         Date:           Description:
-// -----------   ---------       ----------------
-// Jaxon Topel   9/12/2024       Initial Creation
-// Jaxon Topel   9/13/2023       Setup Wifi/ESP32 connection
-// Jaxon Topel   1/13/2025       Architect Communication Network for Node/Gadget
-// Jaxon Topel   1/17/2025       Communication Network Debugging and Data integrity checks
-// Jaxon Topel   1/20/2025       Sending image from Node to Gadget
-// Jaxon Topel   1/20/2025       Transition to new IP algorithm
-// Jaxon Topel   2/26/2025       IP Algorithm Updates
-// Jaxon Topel   3/1/2025        Testing and Revision phase 1 integration
-//
-// Note(1): ChatGPT aided in the development of this code.
-// Note(2): To run this code in arduino ide, please use ai
-// thinker cam, 115200 baud rate to analyze serial communication,
-// and enter both the password and wifi to work within the network.
-//
-// -----------------------------------------------------------------
-
 // --------
 // INCLUDES
 // --------
@@ -35,8 +10,10 @@
 #include <WebServer.h>
 #include "esp_task_wdt.h"
 
+// Web Server.
 WebServer server(80);
 
+// WiFi Credentials.
 const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
 const char* WIFI_PASS = "goodlife";
 
@@ -44,7 +21,10 @@ const char* WIFI_PASS = "goodlife";
 // GADGET IP ADDRESSES
 // -------------------
 
+// Dev Board.
 const char* GADGET_IP = "192.168.8.151";
+
+// Real Board.
 // const char* GADGET_IP = "192.168.8.207";
 
 // ---------
@@ -104,7 +84,6 @@ const int PersonDetected_Pin    = 16;  // Person Detected Pin.
 #else
 #error "Camera model not selected"
 #endif
-
 
 // Constant defines
 #define EI_CAMERA_RAW_FRAME_BUFFER_COLS           320 // Potentially change to 96x96
@@ -214,17 +193,17 @@ static camera_config_t camera_config =
     .pin_href = HREF_GPIO_NUM,
     .pin_pclk = PCLK_GPIO_NUM,
 
-    .xclk_freq_hz = 20000000,       // Increased from 20MHz
+    .xclk_freq_hz = 10000000,       // Reduced to 10MHz for stability
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
     .pixel_format = PIXFORMAT_JPEG,
-    .frame_size = FRAMESIZE_QVGA,
+    .frame_size = FRAMESIZE_QQVGA,   // Reduced to 160x120
     
-    .jpeg_quality = 20,             // Adjusted for better speed/quality balance
-    .fb_count = 2,                  // Enable double buffering
+    .jpeg_quality = 25,              // Increased for better reliability
+    .fb_count = 1,                   // Single buffer to avoid sync issues
     .fb_location = CAMERA_FB_IN_PSRAM,
-    .grab_mode = CAMERA_GRAB_LATEST // Changed to get latest frame
+    .grab_mode = CAMERA_GRAB_LATEST  // Get latest frame
 };
 
 // --------------------
@@ -260,19 +239,44 @@ void handleRoot()
 // Capturing Photo & Sending Photo Back As HTTP Response.
 void handleCapture() 
 {
-    static camera_fb_t *last_fb = NULL;  // Keep last frame buffer
+    const int MAX_RETRIES = 3;
+    const int CAPTURE_DELAY = 50;  // 50ms delay between retries
+    camera_fb_t *fb = nullptr;
     
-    // Try to get frame buffer
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-        server.send(500, "text/plain", "Camera capture failed");
-        return;
+    // Try multiple times to get a valid frame
+    for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+            delay(CAPTURE_DELAY);  // Add delay between retries
+            serialPrintWithDelay("Retry attempt " + String(attempt + 1));
+        }
+        
+        fb = esp_camera_fb_get();
+        if (!fb) {
+            serialPrintWithDelay("Camera capture failed on attempt " + String(attempt + 1));
+            continue;
+        }
+
+        // Verify we have a valid JPEG
+        if (fb->format != PIXFORMAT_JPEG || fb->len == 0) {
+            serialPrintWithDelay("Invalid format or empty buffer");
+            esp_camera_fb_return(fb);
+            continue;
+        }
+
+        // Basic JPEG header validation
+        if (fb->len < 100 || fb->buf[0] != 0xFF || fb->buf[1] != 0xD8) {
+            serialPrintWithDelay("Invalid JPEG header detected");
+            esp_camera_fb_return(fb);
+            continue;
+        }
+
+        // If we got here, we have a valid frame
+        break;
     }
 
-    // Since we're already capturing in JPEG format, we can use the buffer directly
-    if (fb->format != PIXFORMAT_JPEG) {
-        esp_camera_fb_return(fb);
-        server.send(500, "text/plain", "Wrong image format");
+    // If all attempts failed
+    if (!fb) {
+        server.send(500, "text/plain", "Failed to capture valid image after multiple attempts");
         return;
     }
 
@@ -284,37 +288,38 @@ void handleCapture()
     server.setContentLength(fb->len);
     server.send(200);
 
-    // Stream the JPEG data in chunks
+    // Stream the JPEG data in chunks with better error handling
     WiFiClient client = server.client();
-    const size_t chunk_size = 4096; // Increased to 4KB chunks for better performance
+    const size_t chunk_size = 4096; // 4KB chunks
     size_t remaining = fb->len;
     size_t index = 0;
+    bool success = true;
 
     while (remaining > 0 && client.connected()) {
         size_t chunk = (remaining < chunk_size) ? remaining : chunk_size;
         size_t written = client.write(fb->buf + index, chunk);
-        if (written > 0) {
-            remaining -= written;
-            index += written;
+        
+        if (written == 0) {
+            success = false;
+            serialPrintWithDelay("Failed to write chunk to client");
+            break;
         }
-        // Small yield to prevent watchdog triggers
+        
+        remaining -= written;
+        index += written;
+        
+        // Yield to prevent watchdog triggers
         delay(0);
     }
 
     // Clean up
     esp_camera_fb_return(fb);
 
-    // If we had a previous buffer, return it now
-    if (last_fb) {
-        esp_camera_fb_return(last_fb);
-        last_fb = NULL;
+    if (success) {
+        serialPrintWithDelay("Image sent successfully: " + String(index) + " bytes");
+    } else {
+        serialPrintWithDelay("Image transfer failed or incomplete");
     }
-
-    // Store current buffer for next capture
-    last_fb = fb;
-
-    // Log success with actual bytes sent
-    serialPrintWithDelay("Image sent: " + String(index) + " bytes");
 }
 
 // -----------------------------------------------------------------------------------------
