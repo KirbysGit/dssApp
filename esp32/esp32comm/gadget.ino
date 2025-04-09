@@ -301,12 +301,17 @@ void checkSwitches() {
     // Get Current Time.
     unsigned long currentMillis = millis();
     
+    // Track previous switch states
+    static bool prevLightsState = HIGH;  // HIGH means switch is not pressed (due to INPUT_PULLUP)
+    
     // Debounce switch presses.
     if (currentMillis - lastSwitchPressTime > DEBOUNCE_DELAY) {
+        char input = Serial.read();
+        // Read current switch states
+        bool currentLightsState = digitalRead(TURN_ON_LIGHTS_PIN);
 
         // Check trigger alarm switch.
-        if (digitalRead(TRIGGER_ALARM_PIN) == LOW) {
-
+        if (digitalRead(TRIGGER_ALARM_PIN) == LOW || input == 'a') {
             // Print notification.
             Serial.println("[INPUT] Trigger Alarm Switch Activated");
             
@@ -317,22 +322,28 @@ void checkSwitches() {
             lastSwitchPressTime = currentMillis;
         }
 
-        // Check turn on lights switch.
-        if (digitalRead(TURN_ON_LIGHTS_PIN) == LOW) {
-
-            // Print notification.
-            Serial.println("[INPUT] Turn On Lights Switch Activated");
-
-            // Notify node.
-            notifyNode("/turn_on_lights");
-
-            // Update last switch press time.
+        // Handle lights switch state change
+        if (currentLightsState != prevLightsState || input == 'l') {
             lastSwitchPressTime = currentMillis;
+            
+            if (currentLightsState == LOW) {  // Switch pressed
+                // Print notification.
+                Serial.println("[INPUT] Turn On Lights Switch Activated");
+                // Notify node to turn on lights
+                notifyNode("/turn_on_lights");
+            } else {  // Switch released
+                // Print notification.
+                Serial.println("[INPUT] Turn On Lights Switch Released");
+                // Notify node to turn off lights
+                notifyNode("/turn_off_lights");
+            }
+            
+            // Update previous state
+            prevLightsState = currentLightsState;
         }
 
         // Check turn off alarm switch.
-        if (digitalRead(TURN_OFF_ALARM_PIN) == LOW) {
-
+        if (digitalRead(TURN_OFF_ALARM_PIN) == LOW || input == 'o') {
             // Print notification.
             Serial.println("[INPUT] Turn Off Alarm Switch Activated");
 
@@ -341,7 +352,7 @@ void checkSwitches() {
 
             // Update last switch press time.
             lastSwitchPressTime = currentMillis;
-          }
+        }
     }
 }
 
@@ -427,6 +438,10 @@ void setup() {
 // -----------------------------------------------------------------------------------------
 
 void checkWifiConnection() {
+
+    // Last WiFi Check Time.
+    static unsigned long lastWiFiCheck = 0;
+
     // Check Wi-Fi Connection Every 10 Seconds.
     if (millis() - lastWiFiCheck > 10000) {
         lastWiFiCheck = millis();

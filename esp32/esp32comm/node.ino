@@ -193,15 +193,15 @@ static camera_config_t camera_config =
     .pin_href = HREF_GPIO_NUM,
     .pin_pclk = PCLK_GPIO_NUM,
 
-    .xclk_freq_hz = 10000000,       // Reduced to 10MHz for stability
+    .xclk_freq_hz = 20000000,        // Back to 20MHz for better image quality
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_JPEG,
-    .frame_size = FRAMESIZE_QQVGA,   // Reduced to 160x120
+    .pixel_format = PIXFORMAT_RGB565, // Use RGB565 for better image quality
+    .frame_size = FRAMESIZE_QVGA,    // Back to QVGA (320x240) for better detection
     
-    .jpeg_quality = 25,              // Increased for better reliability
-    .fb_count = 1,                   // Single buffer to avoid sync issues
+    .jpeg_quality = 10,              // Best quality for JPEG
+    .fb_count = 2,                   // Use 2 frame buffers for better stability
     .fb_location = CAMERA_FB_IN_PSRAM,
     .grab_mode = CAMERA_GRAB_LATEST  // Get latest frame
 };
@@ -780,6 +780,41 @@ void loop()
         return;
     }
 
+    // Add image quality checks
+    bool is_valid_image = true;
+    uint32_t dark_pixels = 0;
+    uint32_t bright_pixels = 0;
+    uint32_t total_pixels = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
+
+    // Check image isn't too dark or too bright
+    for (uint32_t i = 0; i < total_pixels * 3; i += 3) {
+        uint8_t r = snapshot_buf[i];
+        uint8_t g = snapshot_buf[i + 1];
+        uint8_t b = snapshot_buf[i + 2];
+        
+        // Calculate luminance
+        float luminance = 0.299f * r + 0.587f * g + 0.114f * b;
+        
+        if (luminance < 30) dark_pixels++;      // Too dark threshold
+        if (luminance > 220) bright_pixels++;   // Too bright threshold
+    }
+
+    // Calculate percentages
+    float dark_percent = (float)dark_pixels / total_pixels * 100;
+    float bright_percent = (float)bright_pixels / total_pixels * 100;
+
+    // Image quality checks
+    if (dark_percent > 80) {
+        ei_printf("Image too dark (%.1f%% dark pixels). Skipping inference.\n", dark_percent);
+        free(snapshot_buf);
+        return;
+    }
+    if (bright_percent > 80) {
+        ei_printf("Image too bright (%.1f%% bright pixels). Skipping inference.\n", bright_percent);
+        free(snapshot_buf);
+        return;
+    }
+
     // Run the classifier
     ei_impulse_result_t result = { 0 };
     EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
@@ -794,19 +829,20 @@ void loop()
     ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
                 result.timing.dsp, result.timing.classification, result.timing.anomaly);
 
-    // Process the classifier results
+    // Process the classifier results with confidence threshold
     bool personDetected = false;
+    float confidence_threshold = 0.6; // Adjust this threshold as needed (0.0 to 1.0)
 
 #if EI_CLASSIFIER_OBJECT_DETECTION == 1
     ei_printf("Object detection bounding boxes:\r\n");
     for (uint32_t i = 0; i < result.bounding_boxes_count; i++) 
     {
         ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
-        if (bb.value == 0) 
-        {
+        if (bb.value < confidence_threshold) {
+            ei_printf("  %s (%.2f) - Below confidence threshold, ignoring\n", bb.label, bb.value);
             continue;
         }
-        ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+        ei_printf("  %s (%.2f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
                 bb.label,
                 bb.value,
                 bb.x,
