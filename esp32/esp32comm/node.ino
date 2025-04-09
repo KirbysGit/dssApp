@@ -172,7 +172,7 @@ void checkWiFiConnection()
     }
 }
 
-// Configure camera.
+// Configure camera with optimized settings
 static camera_config_t camera_config = 
 {
     .pin_pwdn = PWDN_GPIO_NUM,
@@ -193,18 +193,46 @@ static camera_config_t camera_config =
     .pin_href = HREF_GPIO_NUM,
     .pin_pclk = PCLK_GPIO_NUM,
 
-    .xclk_freq_hz = 20000000,        // Back to 20MHz for better image quality
+    .xclk_freq_hz = 10000000,        // Reduced to 10MHz for stability
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_RGB565, // Use RGB565 for better image quality
-    .frame_size = FRAMESIZE_QVGA,    // Back to QVGA (320x240) for better detection
+    .pixel_format = PIXFORMAT_JPEG,  // Use JPEG for inference to reduce memory usage
+    .frame_size = FRAMESIZE_QVGA,    // 320x240 - good balance for person detection
     
-    .jpeg_quality = 10,              // Best quality for JPEG
-    .fb_count = 2,                   // Use 2 frame buffers for better stability
+    .jpeg_quality = 12,              // Lower quality for faster processing
+    .fb_count = 1,                   // Single buffer to avoid sync issues
     .fb_location = CAMERA_FB_IN_PSRAM,
-    .grab_mode = CAMERA_GRAB_LATEST  // Get latest frame
+    .grab_mode = CAMERA_GRAB_WHEN_EMPTY // Wait for buffer to be empty before capture
 };
+
+// Add camera sensor configuration function
+void configureCameraSensor() {
+    sensor_t * s = esp_camera_sensor_get();
+    if (s) {
+        // Adjust sensor settings for better reliability
+        s->set_brightness(s, 1);     // Increase brightness slightly
+        s->set_contrast(s, 1);       // Default contrast
+        s->set_saturation(s, -2);    // Reduce saturation for better detection
+        s->set_special_effect(s, 0); // No special effects
+        s->set_whitebal(s, 1);       // Enable white balance
+        s->set_awb_gain(s, 1);       // Enable auto white balance gain
+        s->set_wb_mode(s, 0);        // Auto white balance
+        s->set_exposure_ctrl(s, 1);   // Enable auto exposure
+        s->set_aec2(s, 0);           // Disable AEC DSP
+        s->set_gain_ctrl(s, 1);      // Enable auto gain
+        s->set_agc_gain(s, 0);       // Set AGC gain to 0
+        s->set_gainceiling(s, (gainceiling_t)6); // Set gain ceiling
+        s->set_bpc(s, 1);            // Enable black pixel correction
+        s->set_wpc(s, 1);            // Enable white pixel correction
+        s->set_raw_gma(s, 1);        // Enable gamma correction
+        s->set_lenc(s, 1);           // Enable lens correction
+        s->set_hmirror(s, 0);        // No horizontal mirror
+        s->set_vflip(s, 0);          // No vertical flip
+        s->set_dcw(s, 1);            // Enable downsize crop
+        s->set_colorbar(s, 0);       // Disable colorbar test
+    }
+}
 
 // --------------------
 // Function definitions
@@ -901,39 +929,23 @@ void loop()
  *
  * @retval  false if initialisation failed
  */
-bool ei_camera_init(void) 
-{
-
+bool ei_camera_init(void) {
     if (is_initialised) return true;
 
 #if defined(CAMERA_MODEL_ESP_EYE)
-  pinMode(13, INPUT_PULLUP);
-  pinMode(14, INPUT_PULLUP);
+    pinMode(13, INPUT_PULLUP);
+    pinMode(14, INPUT_PULLUP);
 #endif
 
-    //initialize the camera
+    // Initialize the camera
     esp_err_t err = esp_camera_init(&camera_config);
     if (err != ESP_OK) {
-      Serial.printf("Camera init failed with error 0x%x\n", err);
-      return false;
+        ei_printf("Camera init failed with error 0x%x\n", err);
+        return false;
     }
 
-    sensor_t * s = esp_camera_sensor_get();
-    // initial sensors are flipped vertically and colors are a bit saturated
-    if (s->id.PID == OV3660_PID) {
-      s->set_vflip(s, 1); // flip it back
-      s->set_brightness(s, 1); // up the brightness just a bit
-      s->set_saturation(s, 0); // lower the saturation
-    }
-
-#if defined(CAMERA_MODEL_M5STACK_WIDE)
-    s->set_vflip(s, 1);
-    s->set_hmirror(s, 1);
-#elif defined(CAMERA_MODEL_ESP_EYE)
-    s->set_vflip(s, 1);
-    s->set_hmirror(s, 1);
-    s->set_awb_gain(s, 1);
-#endif
+    // Configure additional sensor settings
+    configureCameraSensor();
 
     is_initialised = true;
     return true;
@@ -969,49 +981,67 @@ void ei_camera_deinit(void) {
  * @retval     false if not initialised, image captured, rescaled or cropped failed
  *
  */
-bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) 
-{
-    bool do_resize = false;
-
+bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) {
+    const int STABILIZATION_DELAY = 50;  // ms to wait between captures
+    const int MAX_RETRIES = 3;
+    
     if (!is_initialised) {
         ei_printf("ERR: Camera is not initialized\r\n");
         return false;
     }
 
-    camera_fb_t *fb = esp_camera_fb_get();
+    // Try multiple times to get a valid frame
+    for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+            ei_printf("Retrying capture, attempt %d of %d\n", attempt + 1, MAX_RETRIES);
+            delay(STABILIZATION_DELAY);  // Wait before retry
+        }
 
-    if (!fb) 
-    {
-        ei_printf("Camera capture failed\n");
-        return false;
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            ei_printf("Camera capture failed on attempt %d\n", attempt + 1);
+            continue;
+        }
+
+        // Verify we have valid data
+        if (fb->len == 0 || fb->buf == nullptr) {
+            ei_printf("Invalid frame buffer\n");
+            esp_camera_fb_return(fb);
+            continue;
+        }
+
+        bool success = false;
+        if (fb->format == PIXFORMAT_JPEG) {
+            success = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, out_buf);
+        } else {
+            memcpy(out_buf, fb->buf, fb->len);
+            success = true;
+        }
+
+        esp_camera_fb_return(fb);
+
+        if (!success) {
+            ei_printf("Format conversion failed\n");
+            continue;
+        }
+
+        // If we need to resize
+        if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS) || 
+            (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
+            ei::image::processing::crop_and_interpolate_rgb888(
+                out_buf,
+                EI_CAMERA_RAW_FRAME_BUFFER_COLS,
+                EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
+                out_buf,
+                img_width,
+                img_height
+            );
+        }
+
+        return true;  // Successfully captured and processed
     }
 
-   bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
-
-   esp_camera_fb_return(fb);
-
-   if(!converted){
-       ei_printf("Conversion failed\n");
-       return false;
-   }
-
-    if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS)
-        || (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
-        do_resize = true;
-    }
-
-    if (do_resize) {
-        ei::image::processing::crop_and_interpolate_rgb888(
-        out_buf,
-        EI_CAMERA_RAW_FRAME_BUFFER_COLS,
-        EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
-        out_buf,
-        img_width,
-        img_height);
-    }
-
-
-    return true;
+    return false;  // Failed after all retries
 }
 
 static int ei_camera_get_data(size_t offset, size_t length, float *out_ptr)
