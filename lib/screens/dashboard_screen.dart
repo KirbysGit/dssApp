@@ -1,47 +1,85 @@
+// lib/screens/dashboard_screen.dart
+
+// Dashboard Screen.
+
+// Responsibilities:
+// - Display the Latest Image From The Camera.
+// - Display the Status of the Security System.
+// - Allow the User to Configure the IP Address of the Gadget.
+// - Allow the User to Refresh the Status of the Security System.
+
+
+// Imports.
+import 'dart:ui';
+import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui';
-import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../theme/app_theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/security_provider.dart';
-import '../models/security_state.dart';
-import '../services/notification_service.dart';
-import './cameras_screen.dart';
-import './logs_screen.dart';
-import './test_gadget_screen.dart';
-import './alert_screen.dart';
 
+// Local Imports.
+import './logs_screen.dart';
+import './alert_screen.dart';
+import './cameras_screen.dart';
+import '../theme/app_theme.dart';
+import './test_gadget_screen.dart';
+import '../widgets/status_card.dart';
+import '../models/security_state.dart';
+import '../widgets/section_header.dart';
+import '../providers/security_provider.dart';
+import '../services/camera_image_service.dart';
+import '../widgets/cameras_list.dart' as widgets;
+
+// Dashboard Screen.
 class DashboardScreen extends ConsumerStatefulWidget {
+  // Constructor.
   const DashboardScreen({Key? key}) : super(key: key);
 
   @override
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
+// Dashboard Screen State.
 class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTickerProviderStateMixin {
+  // Animation Controller.
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  // Latest Image.
   Image? _latestImage;
   Uint8List? _latestImageBytes;
+
+  // Alert Visible.
   bool _alertVisible = false;
+  DateTime? _lastAlertTime;
+
+  // Date Formatter.
   final DateFormat _dateFormatter = DateFormat('MMM dd, yyyy, hh:mm a');
+
+  // Active Camera URL.
   String? _activeCameraUrl;
+
+  // Active Camera Name.
   String? _activeCameraName;
+
+  // Is Fetching Image.
   bool _isFetchingImage = false;
+
+  final _cameraService = CameraImageService();
 
   @override
   void initState() {
+    // Initialize The Animation Controller.
     super.initState();
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
-    
+
+    // Create The Fade Animation.
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -49,162 +87,141 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
       parent: _animationController,
       curve: Curves.easeIn,
     ));
-    
+
+    // Forward The Animation.
     _animationController.forward();
 
-    // Start periodic image updates
+    // Start Periodic Image Updates.
     _startImageUpdates();
   }
 
   @override
   void dispose() {
+    // Dispose The Animation Controller.
     _animationController.dispose();
+
+    // Dispose The State.
     super.dispose();
   }
 
-  Future<void> _showDetectionAlert(SecurityState status) async {
-    if (_alertVisible || !mounted) return;
+  // Fetch Latest Image.
+  Future<void> _fetchLatestImage(SecurityState status) async {
+    if (_isFetchingImage) {
+      debugPrint('🔄 Already fetching image, skipping...');
+      return;
+    }
 
-    _alertVisible = true;
-    
-    await Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => AlertScreen(
-          image: _latestImageBytes,
-          cameraName: _activeCameraName ?? 'Unknown Camera',
-          timestamp: status.lastDetectionTime ?? DateTime.now(),
-        ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          const begin = Offset(0.0, 1.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutCubic;
-          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-          var offsetAnimation = animation.drive(tween);
-          return SlideTransition(
-            position: offsetAnimation,
-            child: child,
+    setState(() {
+      _isFetchingImage = true;
+    });
+
+    try {
+      final (imageBytes, _, cameraName) = await _cameraService.fetchLatestImage(status);
+      
+      if (!mounted) return;
+
+      if (imageBytes != null) {
+        setState(() {
+          _latestImageBytes = imageBytes;
+          _latestImage = Image.memory(
+            imageBytes,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
           );
-        },
-        transitionDuration: const Duration(milliseconds: 300),
-      ),
-    ).whenComplete(() {
+          _activeCameraName = cameraName;
+          _isFetchingImage = false;
+        });
+      } else {
+        debugPrint('⚠️ No image data received');
+        setState(() {
+          _isFetchingImage = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error in _fetchLatestImage: $e');
+      if (mounted) {
+        setState(() {
+          _isFetchingImage = false;
+        });
+      }
+    }
+  }
+
+  // Show Detection Alert.
+  Future<void> _showDetectionAlert(SecurityState status) async {
+    if (_alertVisible || !mounted) {
+      debugPrint('⚠️ Alert already visible or widget unmounted');
+      return;
+    }
+
+    setState(() {
+      _alertVisible = true;
+    });
+
+    try {
+      await Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => AlertScreen(
+            image: _latestImageBytes,
+            cameraName: _activeCameraName ?? 'Unknown Camera',
+            timestamp: status.lastDetectionTime ?? DateTime.now(),
+          ),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            const begin = Offset(0.0, 1.0);
+            const end = Offset.zero;
+            const curve = Curves.easeOutCubic;
+            var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+            var offsetAnimation = animation.drive(tween);
+            return SlideTransition(
+              position: offsetAnimation,
+              child: child,
+            );
+          },
+          transitionDuration: const Duration(milliseconds: 300),
+        ),
+      );
+    } finally {
       if (mounted) {
         setState(() {
           _alertVisible = false;
         });
       }
-    });
-  }
-
-  Future<void> _fetchLatestImage(SecurityState status) async {
-    if (status.cameras.isEmpty) {
-      debugPrint('No cameras available');
-      return;
-    }
-
-    // If we're already showing an alert, don't fetch again
-    if (_alertVisible) {
-      debugPrint('Alert visible, skipping fetch');
-      return;
-    }
-
-    // If we're already fetching, wait for the current fetch to complete
-    if (_isFetchingImage) {
-      debugPrint('Already fetching image, waiting...');
-      return;
-    }
-
-    debugPrint('Starting image fetch...');
-    setState(() => _isFetchingImage = true);
-
-    try {
-      // Find the most recent camera
-      final mostRecentCamera = status.cameras.reduce((curr, next) => 
-        (curr['lastSeen'] ?? 0) > (next['lastSeen'] ?? 0) ? curr : next
-      );
-
-      final cameraUrl = mostRecentCamera['url'] as String?;
-      if (cameraUrl == null) {
-        debugPrint('No camera URL available');
-        return;
-      }
-
-      setState(() {
-        _activeCameraUrl = cameraUrl;
-        _activeCameraName = mostRecentCamera['name'] as String?;
-      });
-
-      debugPrint('Fetching image from camera: $cameraUrl');
-      
-      // Try up to 3 times with increasing delays
-      Uint8List? imageBytes;
-      for (int attempt = 1; attempt <= 3 && mounted; attempt++) {
-        try {
-          final response = await http.get(Uri.parse(cameraUrl))
-              .timeout(const Duration(seconds: 5));
-
-          if (response.statusCode == 200 && 
-              response.headers['content-type']?.contains('image/') == true) {
-            imageBytes = response.bodyBytes;
-            debugPrint('Image fetch successful on attempt $attempt');
-            break;
-          }
-          
-          debugPrint('Invalid response on attempt $attempt: ${response.statusCode}');
-          if (attempt < 3) {
-            await Future.delayed(Duration(milliseconds: 500 * attempt));
-          }
-        } catch (e) {
-          debugPrint('Error on attempt $attempt: $e');
-          if (attempt < 3) {
-            await Future.delayed(Duration(milliseconds: 500 * attempt));
-          }
-        }
-      }
-
-      if (imageBytes != null && mounted) {
-        setState(() {
-          _latestImageBytes = imageBytes;
-          _latestImage = imageBytes != null ? Image.memory(
-            imageBytes,
-            fit: BoxFit.contain,
-            gaplessPlayback: true,
-          ) : null;
-        });
-        debugPrint('Image updated successfully');
-      } else {
-        debugPrint('Failed to fetch image after all attempts');
-      }
-    } catch (e) {
-      debugPrint('Error in image fetch process: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isFetchingImage = false);
-        debugPrint('Image fetch completed, _isFetchingImage set to false');
-      }
     }
   }
 
+  // Handle Camera Refresh.
   void _handleCameraRefresh(Map<String, dynamic> camera) {
-    // Don't allow refresh if alert is visible or already fetching
+    // If The Alert Is Visible Or The State Is Not Mounted, Return.
     if (_alertVisible || _isFetchingImage) return;
 
+    // Set The Active Camera URL And Name.
     setState(() {
       _activeCameraUrl = camera['url'] as String?;
       _activeCameraName = camera['name'] as String?;
     });
+
+    // Fetch The Latest Image.
     _fetchLatestImage(ref.read(securityStatusProvider));
   }
 
+  // Show Full Screen Image.
   Future<void> _showFullScreenImage() async {
+    // If The Latest Image Is Null, Return.
     if (_latestImage == null) return;
 
+    // Show The Full Screen Image.
     await Navigator.of(context).push(
+      // Material Page Route.
       MaterialPageRoute(
+        // Builder.
         builder: (context) => Scaffold(
+          // Background Color.
           backgroundColor: Colors.black,
+          // App Bar.
           appBar: AppBar(
+            // Background Color.
             backgroundColor: Colors.black,
+            // Icon Theme.
             iconTheme: const IconThemeData(color: Colors.white),
           ),
           body: Center(
@@ -218,39 +235,55 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
   }
 
+  // Start Image Updates.
   void _startImageUpdates() {
     // Initial fetch
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final status = ref.read(securityStatusProvider);
-      _fetchLatestImage(status);
+      _fetchLatestImage(ref.read(securityStatusProvider));
     });
 
     // Set up periodic updates every 10 seconds
     Timer.periodic(const Duration(seconds: 10), (timer) {
-      if (mounted && !_alertVisible && !_isFetchingImage) {
-        final status = ref.read(securityStatusProvider);
-        _fetchLatestImage(status);
+      if (mounted && !_alertVisible) {
+        _fetchLatestImage(ref.read(securityStatusProvider));
       }
     });
   }
 
+  // Build The Widget.
   @override
   Widget build(BuildContext context) {
+    // Security State.
     final securityState = ref.watch(securityStatusProvider);
+
+    // Size.
     final size = MediaQuery.of(context).size;
     final isLargeScreen = size.width > 600;
 
-    // Listen for state changes and show notifications
+    // Listen For State Changes And Show Notifications.
     ref.listenManual(
       securityStatusProvider,
       (previous, next) {
         if (next.shouldShowNotification && !_alertVisible) {
-          debugPrint('Attempting to fetch image and show alert...');
+          // Check if we've shown an alert recently (within last 15 seconds)
+          final now = DateTime.now();
+          if (_lastAlertTime != null && 
+              now.difference(_lastAlertTime!).inSeconds < 15) {
+            debugPrint('🔄 Skipping alert - too soon since last alert');
+            return;
+          }
+
+          debugPrint('🚨 Showing detection alert...');
+          setState(() {
+            _lastAlertTime = now;
+          });
+
           _fetchLatestImage(next).then((_) {
-            debugPrint('Image fetched, latestImage is ${_latestImage != null ? 'available' : 'null'}');
             if (mounted && _latestImage != null) {
-              debugPrint('Showing detection alert...');
+              debugPrint('📸 Image fetched successfully, displaying alert');
               _showDetectionAlert(next);
+            } else {
+              debugPrint('❌ Failed to show alert: mounted=$mounted, hasImage=${_latestImage != null}');
             }
           });
           ref.read(securityStatusProvider.notifier).acknowledgeNotification();
@@ -361,7 +394,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                             const SectionHeader(title: 'Latest Capture'),
                             const SizedBox(height: 12),
                             Center(
-                              child: DetectionCard(
+                              child: widgets.DetectionCard(
                                 image: _latestImage!,
                                 status: securityState,
                                 dateFormatter: _dateFormatter,
@@ -377,7 +410,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
                           if (securityState.cameras.isNotEmpty) ...[
                             const SectionHeader(title: 'Connected Cameras'),
                             const SizedBox(height: 12),
-                            CamerasList(
+                            widgets.CamerasList(
                               cameras: securityState.cameras,
                               dateFormatter: _dateFormatter,
                               onRefresh: _handleCameraRefresh,
@@ -570,12 +603,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
     );
   }
 
+  // Validate IP Address.
   bool _isValidIpAddress(String ip) {
+    // If The IP Is Empty, Return False.
     if (ip.isEmpty) return false;
     
+    // Split The IP Address.
     final parts = ip.split('.');
     if (parts.length != 4) return false;
     
+    // Validate Each Part.
     return parts.every((part) {
       try {
         final number = int.parse(part);
@@ -584,431 +621,5 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
         return false;
       }
     });
-  }
-}
-
-class StatusCard extends ConsumerWidget {
-  final SecurityState status;
-  final DateFormat dateFormatter;
-  final String? activeCameraName;
-  final bool isLargeScreen;
-
-  const StatusCard({
-    Key? key,
-    required this.status,
-    required this.dateFormatter,
-    required this.activeCameraName,
-    required this.isLargeScreen,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Padding(
-            padding: EdgeInsets.all(isLargeScreen ? 24.0 : 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _buildStatusIcon(ref),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _buildStatusText(),
-                          if (status.lastDetectionTime != null) ...[
-                            const SizedBox(height: 4),
-                            _buildTimestamp(),
-                          ],
-                          if (activeCameraName != null) ...[
-                            const SizedBox(height: 4),
-                            _buildCameraInfo(),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusIcon(WidgetRef ref) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.8, end: 1.0),
-      duration: const Duration(milliseconds: 1500),
-      curve: Curves.easeInOut,
-      builder: (context, value, child) {
-        return Transform.scale(
-          scale: value,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: (status.personDetected ? Colors.red : Colors.green).withOpacity(0.2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Icon(
-              status.personDetected ? Icons.warning : Icons.check_circle,
-              color: status.personDetected ? Colors.red : Colors.green,
-              size: isLargeScreen ? 48 : 40,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStatusText() {
-    return Text(
-      status.personDetected ? 'Person Detected!' : 'All Clear',
-      style: TextStyle(
-        color: Colors.white,
-        fontWeight: FontWeight.bold,
-        fontSize: isLargeScreen ? 24 : 20,
-        fontFamily: 'SF Pro Display',
-        letterSpacing: 0.5,
-      ),
-    );
-  }
-
-  Widget _buildTimestamp() {
-    return Text(
-      'Last Detection: ${dateFormatter.format(status.lastDetectionTime!)}',
-      style: TextStyle(
-        color: Colors.white.withOpacity(0.8),
-        fontSize: isLargeScreen ? 16 : 14,
-        fontFamily: 'SF Pro Text',
-        letterSpacing: 0.3,
-      ),
-    );
-  }
-
-  Widget _buildCameraInfo() {
-    return Text(
-      'Camera: ${activeCameraName?.replaceAll('camera_node', 'Node ') ?? 'Unknown'} Camera',
-      style: TextStyle(
-        color: Colors.white.withOpacity(0.8),
-        fontSize: isLargeScreen ? 14 : 12,
-        fontFamily: 'SF Pro Text',
-        letterSpacing: 0.3,
-      ),
-    );
-  }
-}
-
-class SectionHeader extends StatelessWidget {
-  final String title;
-
-  const SectionHeader({Key? key, required this.title}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          fontFamily: 'SF Pro Display',
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-}
-
-class CamerasList extends StatelessWidget {
-  final List<Map<String, dynamic>> cameras;
-  final DateFormat dateFormatter;
-  final Function(Map<String, dynamic>) onRefresh;
-  final bool isLargeScreen;
-
-  const CamerasList({
-    Key? key,
-    required this.cameras,
-    required this.dateFormatter,
-    required this.onRefresh,
-    required this.isLargeScreen,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 120,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: cameras.length,
-        itemBuilder: (context, index) {
-          final camera = cameras[index];
-          final lastSeen = DateTime.fromMillisecondsSinceEpoch(
-            camera['lastSeen'] ?? 0,
-          );
-          
-          return Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: CameraCard(
-              camera: camera,
-              lastSeen: lastSeen,
-              dateFormatter: dateFormatter,
-              onRefresh: onRefresh,
-              isLargeScreen: isLargeScreen,
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class CameraCard extends StatelessWidget {
-  final Map<String, dynamic> camera;
-  final DateTime lastSeen;
-  final DateFormat dateFormatter;
-  final Function(Map<String, dynamic>) onRefresh;
-  final bool isLargeScreen;
-
-  const CameraCard({
-    Key? key,
-    required this.camera,
-    required this.lastSeen,
-    required this.dateFormatter,
-    required this.onRefresh,
-    required this.isLargeScreen,
-  }) : super(key: key);
-
-  String _getFormattedTimestamp() {
-    // If lastSeen is too old (like epoch 0) or in the future, use current time
-    final now = DateTime.now();
-    if (lastSeen.year < 2020 || lastSeen.isAfter(now)) {
-      return 'Last seen: Just now';
-    }
-
-    final difference = now.difference(lastSeen);
-    if (difference.inSeconds < 60) {
-      return 'Last seen: Just now';
-    } else if (difference.inMinutes < 60) {
-      return 'Last seen: ${difference.inMinutes}m ago';
-    } else if (difference.inHours < 24) {
-      return 'Last seen: ${difference.inHours}h ago';
-    } else {
-      return 'Last seen: ${dateFormatter.format(lastSeen)}';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 160,
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => onRefresh(camera),
-              borderRadius: BorderRadius.circular(16),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.pineGreen.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.camera_alt,
-                        color: Colors.white,
-                        size: isLargeScreen ? 28 : 24,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      camera['name'] ?? 'Unknown Camera',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: isLargeScreen ? 14 : 12,
-                        fontFamily: 'SF Pro Display',
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _getFormattedTimestamp(),
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: isLargeScreen ? 12 : 10,
-                        fontFamily: 'SF Pro Text',
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class DetectionCard extends StatelessWidget {
-  final Image image;
-  final SecurityState status;
-  final DateFormat dateFormatter;
-  final String? activeCameraName;
-  final VoidCallback onFullScreen;
-  final bool isLargeScreen;
-
-  const DetectionCard({
-    Key? key,
-    required this.image,
-    required this.status,
-    required this.dateFormatter,
-    required this.activeCameraName,
-    required this.onFullScreen,
-    required this.isLargeScreen,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (activeCameraName != null)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppTheme.pineGreen.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${activeCameraName?.replaceAll('camera_node', 'Node ') ?? 'Unknown'} Camera',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeScreen ? 14 : 12,
-                        fontWeight: FontWeight.w500,
-                        fontFamily: 'SF Pro Text',
-                      ),
-                    ),
-                  ),
-                ),
-              Hero(
-                tag: 'detection_image',
-                child: GestureDetector(
-                  onTap: onFullScreen,
-                  child: Container(
-                    width: double.infinity,
-                    constraints: const BoxConstraints(maxHeight: 300),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(20),
-                      child: image,
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    if (status.lastDetectionTime != null)
-                      Expanded(
-                        child: Text(
-                          dateFormatter.format(status.lastDetectionTime!),
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: isLargeScreen ? 14 : 12,
-                            fontFamily: 'SF Pro Text',
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ),
-                    IconButton(
-                      icon: Icon(
-                        Icons.fullscreen,
-                        color: Colors.white,
-                        size: isLargeScreen ? 28 : 24,
-                      ),
-                      onPressed: onFullScreen,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }

@@ -44,15 +44,15 @@ const char* WIFI_PASS = "goodlife";
 // GADGET IP ADDRESSES
 // -------------------
 
-// const char* GADGET_IP = "192.168.8.151"; Dev Board
-const char* GADGET_IP = "192.168.8.207";
+const char* GADGET_IP = "192.168.8.151";
+// const char* GADGET_IP = "192.168.8.207";
 
 // ---------
 // CONSTANTS
 // ---------
 
 const int PassiveIR_Pin         = 12;  // Passive IR sensor pin.
-const int LEDStrip_Pin          = 15;  // LED STRIP PIN
+const int LEDStrip_Pin          = 14;  // LED STRIP PIN
 const int Alarm_Pin             = 13;  // ALARM PIN
 const int PersonDetected_Pin    = 16;  // Person Detected Pin.
 
@@ -128,11 +128,6 @@ unsigned long lastHeartbeat = 0;
 const unsigned long HEARTBEAT_INTERVAL = 30000; // Send heartbeat every 30 seconds
 const int MAX_MISSED_HEARTBEATS = 5;
 int missedHeartbeats = 0;
-
-// Add these variables at the top with other globals
-unsigned long lastDetectionTime = 0;
-const unsigned long DETECTION_COOLDOWN = 10000; // 10 seconds cooldown
-const unsigned long CAPTURE_TIMEOUT = 1000; // 1 second timeout for capture
 
 // Helper functions.
 void serialPrintWithDelay(const String& message, bool newLine = true, int delayMs = 10) 
@@ -219,17 +214,17 @@ static camera_config_t camera_config =
     .pin_href = HREF_GPIO_NUM,
     .pin_pclk = PCLK_GPIO_NUM,
 
-    //XCLK 20MHz or 10MHz for OV2640 double FPS (Experimental)
-    .xclk_freq_hz = 20000000,       // Set Clock speed (20Mhz)
+    .xclk_freq_hz = 20000000,       // Increased from 20MHz
     .ledc_timer = LEDC_TIMER_0,
     .ledc_channel = LEDC_CHANNEL_0,
 
-    .pixel_format = PIXFORMAT_JPEG, // Use JPEG for Pixel Format
-    .frame_size = FRAMESIZE_QVGA,    //QQVGA-UXGA Do not use sizes above QVGA when not JPEG
-
-    .jpeg_quality = 10,        // Slightly reduced quality for faster processing
-    .fb_count = 2,            // Increased frame buffer count
-    .grab_mode = CAMERA_GRAB_LATEST, // Get latest frame instead of waiting
+    .pixel_format = PIXFORMAT_JPEG,
+    .frame_size = FRAMESIZE_QVGA,
+    
+    .jpeg_quality = 20,             // Adjusted for better speed/quality balance
+    .fb_count = 2,                  // Enable double buffering
+    .fb_location = CAMERA_FB_IN_PSRAM,
+    .grab_mode = CAMERA_GRAB_LATEST // Changed to get latest frame
 };
 
 // --------------------
@@ -265,35 +260,61 @@ void handleRoot()
 // Capturing Photo & Sending Photo Back As HTTP Response.
 void handleCapture() 
 {
-    // Attempt to Capture Frame.
+    static camera_fb_t *last_fb = NULL;  // Keep last frame buffer
+    
+    // Try to get frame buffer
     camera_fb_t *fb = esp_camera_fb_get();
-
-    if (!fb) 
-    {
-        // If capture fails, send error response.
+    if (!fb) {
         server.send(500, "text/plain", "Camera capture failed");
         return;
     }
 
-    // Clear Any Existing Headers.
-    server.client().flush();
+    // Pre-calculate content length and prepare response headers
+    size_t jpg_buf_len = 0;
+    uint8_t *jpg_buf = NULL;
+    bool converted = frame2jpg(fb->buf, fb->len, fb->width, fb->height, PIXFORMAT_RGB888, 80, &jpg_buf, &jpg_buf_len);
     
-    // Set Required HTTP Headers.
-    server.sendHeader("Content-Type", "image/jpeg");  // Specify JPEG format
-    server.sendHeader("Access-Control-Allow-Origin", "*");  // Enable CORS
-    server.sendHeader("Connection", "close");  // Close connection after sending
-    
-    // Prepare Response w/ Correct Content Length.
-    server.setContentLength(fb->len);
-    server.send(200);  // Send success status
+    if (!converted) {
+        esp_camera_fb_return(fb);
+        server.send(500, "text/plain", "JPEG conversion failed");
+        return;
+    }
 
-    // Get Client Connection & Send Image Data.
+    // Send headers before heavy processing
+    server.client().flush();
+    server.sendHeader("Content-Type", "image/jpeg");
+    server.sendHeader("Content-Disposition", "inline; filename=capture.jpg");
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.setContentLength(jpg_buf_len);
+    server.send(200);
+
+    // Stream the JPEG data in chunks
     WiFiClient client = server.client();
-    client.write(fb->buf, fb->len);
-    
-    // Clean Up Allocated Memory & Log Success.
+    const size_t chunk_size = 1024; // 1KB chunks
+    size_t remaining = jpg_buf_len;
+    size_t index = 0;
+
+    while (remaining > 0 && client.connected()) {
+        size_t chunk = (remaining < chunk_size) ? remaining : chunk_size;
+        client.write(&jpg_buf[index], chunk);
+        remaining -= chunk;
+        index += chunk;
+        // Small yield to prevent watchdog triggers
+        delay(0);
+    }
+
+    // Clean up
+    free(jpg_buf);
     esp_camera_fb_return(fb);
-    serialPrintWithDelay("Sent image: " + String(fb->len) + " bytes");
+
+    // If we had a previous buffer, return it now
+    if (last_fb) {
+        esp_camera_fb_return(last_fb);
+        last_fb = NULL;
+    }
+
+    // Store current buffer for next capture
+    last_fb = fb;
 }
 
 // -----------------------------------------------------------------------------------------
@@ -454,8 +475,9 @@ void handleTurnOnLights() {
     
     // Activate Lights.
     lightsActive = true;
+    digitalWrite(4, HIGH);
     digitalWrite(LEDStrip_Pin, HIGH);
-
+    delay(10000);
     delay(200);  // Small delay to ensure the lights get activated
     
     // Send Detailed Response.
@@ -598,13 +620,11 @@ void setup()
     Serial.println("--------------------------------");
 
     // Initialize Passive IR sensor pin
-    pinMode(PassiveIR_Pin, INPUT); // Set PassiveIR_Pin as input
+    //pinMode(PassiveIR_Pin, INPUT); // Set PassiveIR_Pin as input
     pinMode(LEDStrip_Pin, OUTPUT);
     pinMode(Alarm_Pin, OUTPUT);
-
-    digitalWrite(LEDStrip_Pin, HIGH);
-    delay(5000);
-    digitalWrite(LEDStrip_Pin, LOW);
+    pinMode(33, OUTPUT);
+    pinMode(4, OUTPUT);
 
 
     
@@ -682,12 +702,12 @@ void setup()
 void loop()
 {
   // 1. Check Wi-Fi Connection & Reconnect if Disconnected.
-    static unsigned long lastWiFiCheck = 0;
+  static unsigned long lastWiFiCheck = 0;
   const unsigned long WIFI_CHECK_INTERVAL = 10000; // Check every 10 seconds
   
   if (millis() - lastWiFiCheck > WIFI_CHECK_INTERVAL) 
   {
-        lastWiFiCheck = millis();
+      lastWiFiCheck = millis();
       checkWiFiConnection();
   }
 
@@ -706,8 +726,8 @@ void loop()
   }
     
   // Handle Incoming Requests.
-    server.handleClient();
-    
+  server.handleClient();
+  
   // Reset LED after request.
   if (isHandlingRequest && millis() - lastRequestTime > 100) 
   {
@@ -728,152 +748,111 @@ void loop()
       }
   }
 
-  int sensorState = digitalRead(PassiveIR_Pin);
-  unsigned long currentTime = millis();
+  char input = Serial.read();
 
-  if (sensorState == HIGH) {
-    // Check if enough time has passed since last detection
-    if (currentTime - lastDetectionTime >= DETECTION_COOLDOWN) {
-      Serial.println("Passive IR sensor triggered! Capturing image...");
-      
-      // Set capture start time
-      unsigned long captureStartTime = millis();
-      
-      // Allocate memory for the snapshot buffer
-      snapshot_buf = (uint8_t*)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
+  if (input == 'P')
+  {
+    Serial.println("Passive IR sensor triggered! Capturing image...");
 
-      if (snapshot_buf == nullptr) {
+    // Allocate memory for the snapshot buffer
+    snapshot_buf = (uint8_t*)malloc(EI_CAMERA_RAW_FRAME_BUFFER_COLS * EI_CAMERA_RAW_FRAME_BUFFER_ROWS * EI_CAMERA_FRAME_BYTE_SIZE);
+
+    if (snapshot_buf == nullptr) 
+    {
         ei_printf("ERR: Failed to allocate snapshot buffer!\n");
         return;
-      }
+    }
 
-      // Add timeout for capture
-      if (millis() - captureStartTime > CAPTURE_TIMEOUT) {
-        ei_printf("ERR: Capture timeout!\n");
+    ei::signal_t signal;
+    signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
+    signal.get_data = &ei_camera_get_data;
+
+    // Capture an image
+    if (ei_camera_capture((size_t)EI_CLASSIFIER_INPUT_WIDTH, (size_t)EI_CLASSIFIER_INPUT_HEIGHT, snapshot_buf) == false) 
+    {
+        ei_printf("Failed to capture image\r\n");
         free(snapshot_buf);
         return;
-      }
-
-      ei::signal_t signal;
-      signal.total_length = EI_CLASSIFIER_INPUT_WIDTH * EI_CLASSIFIER_INPUT_HEIGHT;
-      signal.get_data = &ei_camera_get_data;
-
-      // Capture an image
-      if (ei_camera_capture((size_t)EI_CLASSIFIER_INPUT_WIDTH, (size_t)EI_CLASSIFIER_INPUT_HEIGHT, snapshot_buf) == false) 
-      {
-          ei_printf("Failed to capture image\r\n");
-          free(snapshot_buf);
-          return;
-      }
-
-      // Run the classifier
-      ei_impulse_result_t result = { 0 };
-      EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
-      if (err != EI_IMPULSE_OK) 
-      {
-          ei_printf("ERR: Failed to run classifier (%d)\n", err);
-          free(snapshot_buf);
-          return;
-      }
-
-      // print the predictions
-      ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
-                  result.timing.dsp, result.timing.classification, result.timing.anomaly);
-
-      // Process the classifier results
-      bool personDetected = false;
-
-  #if EI_CLASSIFIER_OBJECT_DETECTION == 1
-      ei_printf("Object detection bounding boxes:\r\n");
-      for (uint32_t i = 0; i < result.bounding_boxes_count; i++) 
-      {
-          ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
-          if (bb.value == 0) 
-          {
-              continue;
-          }
-          ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
-                  bb.label,
-                  bb.value,
-                  bb.x,
-                  bb.y,
-                  bb.width,
-                  bb.height);
-          personDetected = true;
-      }
-
-      // Print the prediction results (classification)
-  #else
-      ei_printf("Predictions:\r\n");
-      for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) 
-      {
-          ei_printf("  %s: ", ei_classifier_inferencing_categories[i]);
-          ei_printf("%.5f\r\n", result.classification[i].value);
-      }
-      #endif
-      
-      if (personDetected) 
-      {
-          lastDetectionTime = currentTime;  // Update last detection time
-          
-          // Capture image immediately after detection
-          camera_fb_t *fb = esp_camera_fb_get();
-          if (!fb) {
-              Serial.println("[ERROR] Camera capture failed");
-              return;
-          }
-
-          // Store the image temporarily
-          size_t _jpg_buf_len = 0;
-          uint8_t *_jpg_buf = NULL;
-          if (frame2jpg(fb->buf, fb->len, fb->width, fb->height, fb->format, 80, &_jpg_buf, &_jpg_buf_len)) {
-              Serial.println("[INFO] JPEG conversion successful");
-          } else {
-              Serial.println("[ERROR] JPEG conversion failed");
-              esp_camera_fb_return(fb);
-              return;
-          }
-          
-          esp_camera_fb_return(fb);
-
-          // Now notify gadget with the captured image
-          notifyGadget();
-
-          Serial.println("[INFO] Person detected in the image.");
-          Serial.println("[INFO] Turning on lights...");
-
-          digitalWrite(LEDStrip_Pin, HIGH);
-          digitalWrite(Alarm_Pin, HIGH);
-
-          Serial.println("[INFO] Triggering alarm...");
-          Serial.println("[INFO] Sending notification to gadget...");
-
-          delay(15000); // 15 seconds.
-
-          digitalWrite(LEDStrip_Pin, LOW);
-          digitalWrite(Alarm_Pin, LOW);
-
-          Serial.println("[INFO] Alarm turned off.");
-          Serial.println("[INFO] Lights turned off.");
-
-          // Clean up
-          if (_jpg_buf) {
-              free(_jpg_buf);
-          }
-
-          delay(2000);
-      } 
-      else 
-      {
-          Serial.println("[INFO] No person detected in the image.");
-      }
-
-      free(snapshot_buf);
     }
+
+    // Run the classifier
+    ei_impulse_result_t result = { 0 };
+    EI_IMPULSE_ERROR err = run_classifier(&signal, &result, debug_nn);
+    if (err != EI_IMPULSE_OK) 
+    {
+        ei_printf("ERR: Failed to run classifier (%d)\n", err);
+        free(snapshot_buf);
+        return;
+    }
+
+    // print the predictions
+    ei_printf("Predictions (DSP: %d ms., Classification: %d ms., Anomaly: %d ms.): \n",
+                result.timing.dsp, result.timing.classification, result.timing.anomaly);
+
+    // Process the classifier results
+    bool personDetected = false;
+
+#if EI_CLASSIFIER_OBJECT_DETECTION == 1
+    ei_printf("Object detection bounding boxes:\r\n");
+    for (uint32_t i = 0; i < result.bounding_boxes_count; i++) 
+    {
+        ei_impulse_result_bounding_box_t bb = result.bounding_boxes[i];
+        if (bb.value == 0) 
+        {
+            continue;
+        }
+        ei_printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\r\n",
+                bb.label,
+                bb.value,
+                bb.x,
+                bb.y,
+                bb.width,
+                bb.height);
+        personDetected = true;
+    }
+
+    // Print the prediction results (classification)
+#else
+    ei_printf("Predictions:\r\n");
+    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) 
+    {
+        ei_printf("  %s: ", ei_classifier_inferencing_categories[i]);
+        ei_printf("%.5f\r\n", result.classification[i].value);
+    }
+#endif
+
+    if (personDetected) 
+    {
+        notifyGadget();
+
+        Serial.println("[INFO] Person detected in the image.");
+        Serial.println("[INFO] Turning on lights...");
+
+        digitalWrite(LEDStrip_Pin, HIGH);
+        digitalWrite(Alarm_Pin, HIGH);
+
+        Serial.println("[INFO] Triggering alarm...");
+        Serial.println("[INFO] Sending notification to gadget...");
+
+        delay(15000); // 15 seconds.
+
+        digitalWrite(LEDStrip_Pin, LOW);
+        digitalWrite(Alarm_Pin, LOW);
+
+        Serial.println("[INFO] Alarm turned off.");
+        Serial.println("[INFO] Lights turned off.");
+
+        delay(2000);
+    } 
+    else 
+    {
+        Serial.println("[INFO] No person detected in the image.");
+    }
+
+    free(snapshot_buf);
   }
 
-  // Reduced delay for more responsive detection
-  delay(100);  // 100ms delay instead of 3000ms
+  delay(3000); // Small delay to avoid rapid polling
 }
 
 /**
@@ -951,42 +930,45 @@ void ei_camera_deinit(void) {
  */
 bool ei_camera_capture(uint32_t img_width, uint32_t img_height, uint8_t *out_buf) 
 {
+    bool do_resize = false;
+
     if (!is_initialised) {
         ei_printf("ERR: Camera is not initialized\r\n");
         return false;
     }
 
     camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
+
+    if (!fb) 
+    {
         ei_printf("Camera capture failed\n");
         return false;
     }
 
-    // Use hardware JPEG decoder when possible
-    if (fb->format == PIXFORMAT_JPEG) {
-        bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
-        esp_camera_fb_return(fb);
+   bool converted = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, snapshot_buf);
 
-        if (!converted) {
-            ei_printf("Conversion failed\n");
-            return false;
-        }
-    } else {
-        memcpy(snapshot_buf, fb->buf, fb->len);
-        esp_camera_fb_return(fb);
+   esp_camera_fb_return(fb);
+
+   if(!converted){
+       ei_printf("Conversion failed\n");
+       return false;
+   }
+
+    if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS)
+        || (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
+        do_resize = true;
     }
 
-    // Only resize if necessary
-    if ((img_width != EI_CAMERA_RAW_FRAME_BUFFER_COLS) ||
-        (img_height != EI_CAMERA_RAW_FRAME_BUFFER_ROWS)) {
+    if (do_resize) {
         ei::image::processing::crop_and_interpolate_rgb888(
-            out_buf,
-            EI_CAMERA_RAW_FRAME_BUFFER_COLS,
-            EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
-            out_buf,
-            img_width,
-            img_height);
+        out_buf,
+        EI_CAMERA_RAW_FRAME_BUFFER_COLS,
+        EI_CAMERA_RAW_FRAME_BUFFER_ROWS,
+        out_buf,
+        img_width,
+        img_height);
     }
+
 
     return true;
 }

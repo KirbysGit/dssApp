@@ -6,9 +6,6 @@
 // It also provides the providers for the security devices and cameras.
 // It also provides the providers for the security status and detection logs.
 
-
-
-
 // Importing Required Packages.
 import 'dart:async';
 import 'dart:convert';
@@ -90,7 +87,7 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
       if (statusResponse.statusCode == 200) {
         // Decode The Status Response.
         final data = jsonDecode(statusResponse.body);
-        debugPrint('Received status data: $data');
+        //debugPrint('Received status data: $data');
 
         // Parse The Cameras.
         final List<Map<String, dynamic>> cameras = 
@@ -99,7 +96,7 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
           ).toList() ?? [];
 
         // Debug Print The Parsed Cameras.
-        debugPrint('Parsed cameras: $cameras');
+        //debugPrint('Parsed cameras: $cameras');
 
         // Parse The Person Detected.
         final bool personDetected = data['personDetected'] ?? false;
@@ -111,7 +108,7 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
           try {
             lastDetectionTime = DateTime.parse(data['lastDetectionTime'].toString());
           } catch (e) {
-            debugPrint('Error parsing timestamp: $e');
+            //debugPrint('Error parsing timestamp: $e');
             lastDetectionTime = DateTime.now();
           }
         }
@@ -121,15 +118,26 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
           (personDetected && lastDetectionTime != null && 
            lastDetectionTime != state.lastDetectionTime);
 
-        debugPrint('Person detected: $personDetected, Was detected before: $wasPersonDetectedBefore');
+        // Only log when there's a detection or notification event
+        if (personDetected || shouldNotify) {
+          debugPrint('\n🔍 Detection Event:');
+          debugPrint('├─ Person Detected: $personDetected');
+          debugPrint('├─ Was Previously Detected: $wasPersonDetectedBefore');
+          debugPrint('├─ Detection Time: $lastDetectionTime');
+          debugPrint('└─ Should Notify: $shouldNotify\n');
+        }
 
         // If This Is A New Detection, Create A Log Entry And Start The Reset Timer.
         if (shouldNotify && cameras.isNotEmpty) {
+          debugPrint('📝 Creating new detection log entry for camera: ${cameras.first['name']}');
           _handleNewDetection(cameras.first, lastDetectionTime);
         }
 
         // Only Update State If We're Not In The Middle Of A Detection Timer.
         if (_detectionResetTimer == null || !_detectionResetTimer!.isActive || personDetected) {
+          if (personDetected || shouldNotify) {
+            debugPrint('🔄 Updating security state with new detection data');
+          }
           _updateState(personDetected, lastDetectionTime, cameras, shouldNotify);
         }
       } else {
@@ -177,13 +185,16 @@ class SecurityStatusNotifier extends StateNotifier<SecurityState> {
   // Reset Detection Timer.
   void _resetDetectionTimer() {
     _detectionResetTimer?.cancel();
-    _detectionResetTimer = Timer(const Duration(seconds: 10), () {
+    _detectionResetTimer = Timer(const Duration(seconds: 15), () {
       if (mounted) {
+        debugPrint('\n🕒 Detection state reset:');
+        debugPrint('├─ Clearing person detected state');
+        debugPrint('└─ Resetting notification flag\n');
+        
         state = state.copyWith(
           personDetected: false,          // Whether The Person Is Detected.
           shouldShowNotification: false,  // Whether To Show Notification.
         );
-        debugPrint('Person detection state reset after 10 seconds');
       }
     });
   }

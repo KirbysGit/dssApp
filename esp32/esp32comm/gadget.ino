@@ -1,46 +1,12 @@
-// -----------------------------------------------------------------
-//                      main.ino(Gadget)
-//
-//
-// Description: Central point where the code runs on our 
-//              esp gadget.
-//
-// Name:         Date:           Description:
-// -----------   ---------       ----------------
-// Jaxon Topel   9/24/2024       Initial Creation
-// Jaxon Topel   10/12/2024      Initial Object Detection work
-// Jaxon Topel   12/20/2024      Gadget GPIO pin integration
-// Jaxon Topel   12/20/2024      Loop functionality architecture development
-// Jaxon Topel   1/13/2025       Architect Communication Network for Node/Gadget
-// Jaxon Topel   1/17/2025       Communication Network debugging, data integrity checks, IP alg debugging
-// Jaxon Topel   1/20/2025       Sending image from Node to Gadget
-// Jaxon Topel   3/1/2025        Testing and Revision phase 1 integration
-//
-// Note(1): ChatGPT aided in the development of this code.
-// Note(2): To run this code in arduino ide, please use , set baud
-// rate to 115200 to analyze serial communication, and enter both
-// the password and wifi to work within the network.
-// -----------------------------------------------------------------
-
 // Imports.
 #include <WebServer.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// Kirby's Hotspot.
-/*
- * const char* WIFI_SSID = "mi telefono";
- * const char* WIFI_PASS = "password";
-*/
-
 // Microrouter Network.
 const char* WIFI_SSID = "GL-AR300M-aa7-NOR";
 const char* WIFI_PASS = "goodlife";
-
-// Jaxon's Hotspot.
-// const char* WIFI_SSID = "Jaxon's IPhone";
-// const char* WIFI_PASS = "jaxontopel1";
 
 // Server on port 80.
 WebServer server(80);
@@ -48,8 +14,6 @@ WebServer server(80);
 // ---------
 // CONSTANTS
 // ---------
-
-// GPIO Pins --> Active Low.
 
 // Trigger Alarm.
 const int TRIGGER_ALARM_PIN = 4;
@@ -60,14 +24,12 @@ const int TURN_ON_LIGHTS_PIN = 5;
 // Turn Off Alarm.
 const int TURN_OFF_ALARM_PIN = 6;
 
+// Extra LED Pins.
 const int LED1 = 16;
 const int LED2 = 17;
 const int LED3 = 18;
 
-// Turn Off Gadget.
-//const byte TURN_OFF_GADGET_PIN = GPIO_NUM_0;
-
-// Switch debounce variables.
+// Switch Debounce Variables.
 unsigned long lastSwitchPressTime = 0;
 const unsigned long DEBOUNCE_DELAY = 200; // 200ms debounce time
 
@@ -84,13 +46,13 @@ struct CameraNode {
 // Max number of cameras.
 #define MAX_CAMERAS 5
 
-// Camera node array.
+// Camera Node Array.
 CameraNode cameras[MAX_CAMERAS];
 
-// Number of cameras.
+// # of Cameras.
 int numCameras = 0;
 
-// Person detection flag.
+// Person Detection Flag.
 bool personDetected = false;
 
 // -----------------------------------------------------------------------------------------
@@ -98,11 +60,9 @@ bool personDetected = false;
 // -----------------------------------------------------------------------------------------
 
 void handlePersonDetected() {
-  // Print person detection notification.
   Serial.println("\n========== PERSON DETECTION NOTIFICATION ==========");
   Serial.println("Time: " + String(millis()));
   Serial.println("Sender IP: " + server.client().remoteIP().toString());
-  // Print raw POST data.
   String postBody = server.arg("plain");
   Serial.println("\nReceived POST data: [" + postBody + "]");
   Serial.println("POST data length: " + String(postBody.length()));
@@ -163,9 +123,6 @@ void handlePersonDetected() {
   // Set Person Detected Flag.
   personDetected = true;
 
-
-
-    
   // Create Response JSON with Camera Information.
   String response = "{";
   response += "\"status\":\"success\",";
@@ -177,11 +134,6 @@ void handlePersonDetected() {
   
   // Send Response.
   server.send(200, "application/json", response);
-    
-  // Blink LED to Indicate Detection.
-  //digitalWrite(LED1, HIGH);
-  //delay(100);
-  //digitalWrite(LED1, LOW);
     
   Serial.println("==============================================\n");
 }
@@ -222,7 +174,6 @@ void handlePersonStatus() {
 // -----------------------------------------------------------------------------------------
 
 void handlePing() {
-    // Print Ping Request.
     Serial.println("\n========== PING REQUEST ==========");
     Serial.println("Time: " + String(millis()));
     Serial.println("Client IP: " + server.client().remoteIP().toString());
@@ -238,7 +189,6 @@ void handlePing() {
 // -----------------------------------------------------------------------------------------
 
 // Controller Function for Endpoints.
-
 void notifyNode(String endpoint) {
     // Check if WiFi is connected.
     if (WiFi.status() != WL_CONNECTED) {
@@ -327,10 +277,6 @@ void handleTestRestartGadget() {
     ESP.restart();
 }
 
-// *********** HARD WARE TESTING ***********
-// - Uncomment code below in checkSwitches() to test hardware.
-// - Uncomment Initialize Pins in setup() to test hardware.
-
 // -----------------------------------------------------------------------------------------
 // Switch Monitoring
 // -----------------------------------------------------------------------------------------
@@ -380,169 +326,145 @@ void checkSwitches() {
             // Update last switch press time.
             lastSwitchPressTime = currentMillis;
           }
-
-        // Check turn off gadget switch.
-        /*
-        if (digitalRead(TURN_OFF_GADGET_PIN) == LOW) {
-
-            // Print notification.
-            Serial.println("[INPUT] Turn Off Gadget Switch Activated");
-
-            // Restart gadget.
-            Serial.println("Shutting down ESP32...");
-            delay(1000);
-            ESP.restart();
-        }
-        */
     }
 }
 
 // -----------------------------------------------------------------------------------------
-// Setup function that initializes ESP32-CAM.
+// Setup Function.
 // -----------------------------------------------------------------------------------------
+
 void setup()
 {
-  // Initialize pins.
-  //pinMode(LED1, OUTPUT);
-  pinMode(TRIGGER_ALARM_PIN, INPUT_PULLUP);
-  pinMode(TURN_ON_LIGHTS_PIN, INPUT_PULLUP);
-  pinMode(TURN_OFF_ALARM_PIN, INPUT_PULLUP);
-  // pinMode(TURN_OFF_GADGET_PIN, INPUT_PULLUP);
-  //digitalWrite(LED1, LOW);
+    // Initialize pins.
+    pinMode(TRIGGER_ALARM_PIN, INPUT_PULLUP);
+    pinMode(TURN_ON_LIGHTS_PIN, INPUT_PULLUP);
+    pinMode(TURN_OFF_ALARM_PIN, INPUT_PULLUP);
 
-  // Start serial communication.
-  Serial.begin(115200);
-  Serial.println("--------------------------------");
-  Serial.println("Starting ESP32-S3 Gadget...");
-  Serial.println("--------------------------------");
+    // Start Serial Communication.
+    Serial.begin(115200);
+    Serial.println("--------------------------------");
+    Serial.println("Starting ESP32-S3 Gadget...");
+    Serial.println("--------------------------------");
 
-  // Configure wifi connection.
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+    // Configure Wifi Connection.
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
 
-  // Wait for wifi to connect.
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-      delay(1000);
-      Serial.print(".");
-      attempts++;
-        
-      // Blink LED to show we're trying to connect.
-      //digitalWrite(LED1, !digitalRead(LED1));
-  }
+    // Wait For Wifi To Connect.
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+        delay(1000);
+        Serial.print(".");
+        attempts++;
+    }
 
-  // Wifi connection result.
-  if (WiFi.status() == WL_CONNECTED) {
+    // Wifi Connection Result.
+    if (WiFi.status() == WL_CONNECTED) {
+        // Print Connection Success.
+        Serial.println("\n----------------------------");
+        Serial.println("WiFi Connected Successfully!");
+        Serial.print("ESP32-S3 IP Address: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("Signal Strength (RSSI): ");
+        Serial.print(WiFi.RSSI());
+        Serial.println(" dBm");
+        Serial.println("----------------------------\n");
 
-      // Turn LED on when connected.  
-      //digitalWrite(LED1, HIGH);
+        // Setup Server Endpoints.  
+        server.on("/person_status", HTTP_GET, handlePersonStatus);
+        server.on("/person_detected", HTTP_POST, handlePersonDetected);
+        server.on("/ping", HTTP_GET, handlePing);
 
-      // Print connection success.
-      Serial.println("\n----------------------------");
-      Serial.println("WiFi Connected Successfully!");
-      Serial.print("ESP32-S3 IP Address: ");
-      Serial.println(WiFi.localIP());
-      Serial.print("Signal Strength (RSSI): ");
-      Serial.print(WiFi.RSSI());
-      Serial.println(" dBm");
-      Serial.println("----------------------------\n");
+        // Test Endpoints.
+        server.on("/test_trigger_alarm", HTTP_GET, handleTestTriggerAlarm);
+        server.on("/test_turn_off_alarm", HTTP_GET, handleTestTurnOffAlarm);
+        server.on("/test_turn_on_lights", HTTP_GET, handleTestTurnOnLights);
+        server.on("/test_turn_off_lights", HTTP_GET, handleTestTurnOffLights);
+        server.on("/test_restart_gadget", HTTP_GET, handleTestRestartGadget);
+            
+        // Start The Web Server.
+        server.begin(); 
+        Serial.println("HTTP server started successfully");
+        Serial.println("Available endpoints:");
+        Serial.println("GET  /person_status - Check person detection status");
+        Serial.println("POST /person_detected - Receive person detection notifications");
+        Serial.println("GET  /ping - Check connection status");
 
-      // Setup server endpoints.  
-      server.on("/person_status", HTTP_GET, handlePersonStatus);
-      server.on("/person_detected", HTTP_POST, handlePersonDetected);
-      server.on("/ping", HTTP_GET, handlePing);
-      server.on("/test_trigger_alarm", HTTP_GET, handleTestTriggerAlarm);
-
-      // Test endpoints.
-      server.on("/test_turn_off_alarm", HTTP_GET, handleTestTurnOffAlarm);
-      server.on("/test_turn_on_lights", HTTP_GET, handleTestTurnOnLights);
-      server.on("/test_turn_off_lights", HTTP_GET, handleTestTurnOffLights);
-      server.on("/test_restart_gadget", HTTP_GET, handleTestRestartGadget);
-        
-      // Start the web server.
-      server.begin(); 
-      Serial.println("HTTP server started successfully");
-      Serial.println("Available endpoints:");
-      Serial.println("GET  /person_status - Check person detection status");
-      Serial.println("POST /person_detected - Receive person detection notifications");
-      Serial.println("GET  /ping - Check connection status");
-
-      // Test endpoints.
-      Serial.println("GET  /test_trigger_alarm - Test trigger alarm command");
-      Serial.println("GET  /test_turn_off_alarm - Test turn off alarm command");
-      Serial.println("GET  /test_turn_on_lights - Test turn on lights command");
-      Serial.println("GET  /test_turn_off_lights - Test turn off lights command");
-      Serial.println("GET  /test_restart_gadget - Restart gadget");
-      Serial.println("--------------------------------");
-  } else {
-      // Turn LED off if failed.
-      //digitalWrite(LED, LOW);
-
-      // Print error.
-      Serial.println("\n[ERROR] Failed to connect to WiFi after 30 attempts.");
-      Serial.println("Please check your WiFi credentials and router settings.");
-      Serial.println("Restarting in 5 seconds...");
-      delay(5000);
-      ESP.restart();
-  }
+        // Test Endpoints.
+        Serial.println("GET  /test_trigger_alarm - Test trigger alarm command");
+        Serial.println("GET  /test_turn_off_alarm - Test turn off alarm command");
+        Serial.println("GET  /test_turn_on_lights - Test turn on lights command");
+        Serial.println("GET  /test_turn_off_lights - Test turn off lights command");
+        Serial.println("GET  /test_restart_gadget - Restart gadget");
+        Serial.println("--------------------------------");
+    } else {
+        // Print Error.
+        Serial.println("\n[ERROR] Failed to connect to WiFi after 30 attempts.");
+        Serial.println("Please check your WiFi credentials and router settings.");
+        Serial.println("Restarting in 5 seconds...");
+        delay(5000);
+        ESP.restart();
+    }
 }
 
+
+void checkWifiConnection() {
+    // Check Wi-Fi Connection Every 10 Seconds.
+    if (millis() - lastWiFiCheck > 10000) {
+        lastWiFiCheck = millis();
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("[WARNING] Wi-Fi Lost! Attempting To Reconnect...");
+        }
+
+        // Disconnect and reconnect.
+        WiFi.disconnect();
+        WiFi.reconnect();
+
+        // Attempts to reconnect.
+        int attempts = 0;
+
+        // Blink LED to show we're trying to reconnect.
+        while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+            delay(1000);
+            Serial.print(".");
+            attempts++;
+        }
+
+        // Reconnect success.
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("\nWi-Fi Reconnected Successfully!");
+        } else {
+            // Print error and restart.
+            Serial.println("\n[ERROR] Failed To Reconnect. Restarting...");
+            delay(5000);
+            ESP.restart();
+        }
+    }
+}
 // -----------------------------------------------------------------------------------------
-// Main loop that continously listens for client requests.
+// Main Loop.
 // -----------------------------------------------------------------------------------------
 
 void loop()
 {
-  // Check Wi-Fi Connection and Reconnect if Disconnected
-  static unsigned long lastWiFiCheck = 0;
+    // Check Wi-Fi Connection and Reconnect if Disconnected
+    static unsigned long lastWiFiCheck = 0;
 
-  // Check Wi-Fi connection every 10 seconds.
-  if (millis() - lastWiFiCheck > 10000) {
-      lastWiFiCheck = millis();
-      if (WiFi.status() != WL_CONNECTED) {
-          Serial.println("[WARNING] Wi-Fi lost! Attempting to reconnect...");
-          //digitalWrite(LED, LOW);
+    // Check Wi-Fi Connection and Reconnect if Disconnected.
+    checkWifiConnection();
 
-          // Disconnect and reconnect.
-          WiFi.disconnect();
-          WiFi.reconnect();
-
-          // Attempts to reconnect.
-          int attempts = 0;
-          
-          // Blink LED to show we're trying to reconnect.
-          while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-              delay(1000);
-              Serial.print(".");
-              attempts++;
-              //digitalWrite(LED, !digitalRead(LED));
-          }
-
-          // Reconnect success.
-          if (WiFi.status() == WL_CONNECTED) {
-              Serial.println("\nWi-Fi reconnected successfully!");
-              //digitalWrite(LED, HIGH);
-          } else {
-              // Print error and restart.
-              Serial.println("\n[ERROR] Failed to reconnect. Restarting...");
-              delay(5000);
-              ESP.restart();
-          }
-      }
-  }
-
-  // Handle incoming HTTP requests.
-  server.handleClient();
-    
-  // Check Hardware Switches.
-  checkSwitches();
-    
-  // Blink LED occasionally to show the device is running.
-  static unsigned long lastBlink = 0;
-  if (millis() - lastBlink > 2000 && WiFi.status() == WL_CONNECTED) {
-      //digitalWrite(LED, !digitalRead(LED));
-      lastBlink = millis();
-  }
+    // Handle Incoming HTTP Requests.
+    server.handleClient();
+        
+    // Check Hardware Switches.
+    checkSwitches();
+        
+    // Blink LED Occasionally To Show The Device Is Running.
+    static unsigned long lastBlink = 0;
+    if (millis() - lastBlink > 2000 && WiFi.status() == WL_CONNECTED) {
+        //digitalWrite(LED, !digitalRead(LED));
+        lastBlink = millis();
+    }
 }
 
 // -----------------------------------------------------------------
