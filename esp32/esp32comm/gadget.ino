@@ -237,8 +237,8 @@ void notifyNode(String endpoint) {
     }
 }
 
-//// -----------------------------------------------------------------------------------------
-// Test Gadget Switches.
+// -----------------------------------------------------------------------------------------
+// Test Trigger Alarm.
 // -----------------------------------------------------------------------------------------
 
 // Test Trigger Alarm from Gadget from Mobile App.
@@ -248,12 +248,20 @@ void handleTestTriggerAlarm() {
     server.send(200, "text/plain", "Test trigger alarm command executed");
 }
 
+// -----------------------------------------------------------------------------------------
+// Test Turn Off Alarm.
+// -----------------------------------------------------------------------------------------
+
 // Test Turn Off Alarm from Gadget from Mobile App.
 void handleTestTurnOffAlarm() {
     Serial.println("[TEST] Turn Off Alarm Command Received");
     notifyNode("/turn_off_alarm");
     server.send(200, "text/plain", "Test turn off alarm command executed");
 }
+
+// -----------------------------------------------------------------------------------------
+// Test Turn On Lights.
+// -----------------------------------------------------------------------------------------
 
 // Test Turn On Lights from Gadget from Mobile App.
 void handleTestTurnOnLights() {
@@ -262,12 +270,20 @@ void handleTestTurnOnLights() {
     server.send(200, "text/plain", "Test turn on lights command executed");
 }
 
+// -----------------------------------------------------------------------------------------
+// Test Turn Off Lights.
+// -----------------------------------------------------------------------------------------
+
 // Test Turn Off Lights from Gadget from Mobile App.
 void handleTestTurnOffLights() {
     Serial.println("[TEST] Turn Off Lights Command Received");
     notifyNode("/turn_off_lights");
     server.send(200, "text/plain", "Test turn off lights command executed");
 }
+    
+// -----------------------------------------------------------------------------------------
+// Test Restart Gadget.
+// -----------------------------------------------------------------------------------------
 
 // Test Restart Gadget from Gadget from Mobile App.
 void handleTestRestartGadget() {
@@ -333,8 +349,7 @@ void checkSwitches() {
 // Setup Function.
 // -----------------------------------------------------------------------------------------
 
-void setup()
-{
+void setup() {
     // Initialize pins.
     pinMode(TRIGGER_ALARM_PIN, INPUT_PULLUP);
     pinMode(TURN_ON_LIGHTS_PIN, INPUT_PULLUP);
@@ -407,6 +422,9 @@ void setup()
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// Check Wifi Connection.
+// -----------------------------------------------------------------------------------------
 
 void checkWifiConnection() {
     // Check Wi-Fi Connection Every 10 Seconds.

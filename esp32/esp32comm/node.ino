@@ -269,14 +269,10 @@ void handleCapture()
         return;
     }
 
-    // Pre-calculate content length and prepare response headers
-    size_t jpg_buf_len = 0;
-    uint8_t *jpg_buf = NULL;
-    bool converted = frame2jpg(fb->buf, fb->len, fb->width, fb->height, PIXFORMAT_RGB888, 80, &jpg_buf, &jpg_buf_len);
-    
-    if (!converted) {
+    // Since we're already capturing in JPEG format, we can use the buffer directly
+    if (fb->format != PIXFORMAT_JPEG) {
         esp_camera_fb_return(fb);
-        server.send(500, "text/plain", "JPEG conversion failed");
+        server.send(500, "text/plain", "Wrong image format");
         return;
     }
 
@@ -285,26 +281,27 @@ void handleCapture()
     server.sendHeader("Content-Type", "image/jpeg");
     server.sendHeader("Content-Disposition", "inline; filename=capture.jpg");
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.setContentLength(jpg_buf_len);
+    server.setContentLength(fb->len);
     server.send(200);
 
     // Stream the JPEG data in chunks
     WiFiClient client = server.client();
-    const size_t chunk_size = 1024; // 1KB chunks
-    size_t remaining = jpg_buf_len;
+    const size_t chunk_size = 4096; // Increased to 4KB chunks for better performance
+    size_t remaining = fb->len;
     size_t index = 0;
 
     while (remaining > 0 && client.connected()) {
         size_t chunk = (remaining < chunk_size) ? remaining : chunk_size;
-        client.write(&jpg_buf[index], chunk);
-        remaining -= chunk;
-        index += chunk;
+        size_t written = client.write(fb->buf + index, chunk);
+        if (written > 0) {
+            remaining -= written;
+            index += written;
+        }
         // Small yield to prevent watchdog triggers
         delay(0);
     }
 
     // Clean up
-    free(jpg_buf);
     esp_camera_fb_return(fb);
 
     // If we had a previous buffer, return it now
@@ -315,6 +312,9 @@ void handleCapture()
 
     // Store current buffer for next capture
     last_fb = fb;
+
+    // Log success with actual bytes sent
+    serialPrintWithDelay("Image sent: " + String(index) + " bytes");
 }
 
 // -----------------------------------------------------------------------------------------
