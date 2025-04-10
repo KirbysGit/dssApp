@@ -109,6 +109,8 @@ class NotificationService {
   Future<void> initialize(ProviderContainer container) async {
     _container = container;
     
+    debugPrint('🔄 Initializing notification service...');
+    
     // Initialize Notification Settings.
     const initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
     const initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
@@ -123,7 +125,10 @@ class NotificationService {
       showBadge: true,
       playSound: true,
       enableLights: true,
+      ledColor: Color.fromARGB(255, 255, 0, 0),
     );
+
+    debugPrint('📱 Setting up notification channel...');
 
     // Initialize Notifications And Create Channel.
     await _notifications.initialize(
@@ -131,12 +136,25 @@ class NotificationService {
       onDidReceiveNotificationResponse: (details) {
         _handleNotificationTap(details);
       },
+      onDidReceiveBackgroundNotificationResponse: _handleBackgroundNotificationTap,
     );
 
     // Create The Android-Specific Notification Channel.
     final platform = _notifications.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await platform?.createNotificationChannel(androidChannel);
+
+    // Request notification permissions
+    final permissionGranted = await _notifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+    
+    debugPrint('📱 Notification permission granted: $permissionGranted');
+    
+    if (permissionGranted != true) {
+      debugPrint('⚠️ Notification permissions not granted!');
+    }
   }
 
   // Handle Notification Tap.
@@ -161,6 +179,14 @@ class NotificationService {
     }
   }
 
+  // Handle Background Notification Tap.
+  @pragma('vm:entry-point')
+  static void _handleBackgroundNotificationTap(NotificationResponse details) {
+    // This method needs to be static and annotated with @pragma('vm:entry-point')
+    final notification = NotificationService();
+    notification._handleNotificationTap(details);
+  }
+
   // Test Method To Verify Notifications.
   Future<void> sendTestNotification() async {
     debugPrint('Sending test notification...');
@@ -169,6 +195,7 @@ class NotificationService {
 
   // Start Polling.
   void startPolling() {
+    debugPrint('🔄 Starting detection polling...');
     _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _checkForPersonDetection());
   }
 
@@ -280,72 +307,90 @@ class NotificationService {
     String? cameraName,
     String? cameraUrl,
   }) async {
-    
-    // Get The Gadget IP.
-    final gadgetIp = _container.read(gadgetIpProvider); 
-
-    // Create The Notification.
-    final notification = NotificationData(
-      title: isTest ? 'Test Notification' : 'Person Detected!',
-      body: isTest 
-          ? 'This is a test notification to verify the system is working.'
-          : 'A person has been detected by ${cameraName ?? 'your security system'}.',
-      timestamp: DateTime.now(),
-      cameraName: cameraName ?? 'Camera Node 1',
-      image: imageBytes,
-      debugInfo: 'Gadget IP: $gadgetIp${cameraUrl != null ? '\nCamera URL: $cameraUrl' : ''}',
-    );
-
-    // Cache The Latest Notification Data And Image.
-    _latestNotification = notification;
-    _latestImage = imageBytes;
-
-    // Add To Queue And Maintain Max Size.
-    _addToNotificationQueue(notification);
-
-    // Configure The Notification Style.
-    final BigTextStyleInformation styleInfo = BigTextStyleInformation(
-      notification.body,
-      htmlFormatBigText: true,
-      contentTitle: notification.title,
-      htmlFormatContentTitle: true,
-      summaryText: 'SecureScape Alert',
-      htmlFormatSummaryText: true,
-    );
-
-    // Create The Notification Details.
-    final androidDetails = AndroidNotificationDetails(
-      'person_detection_channel',
-      'Person Detection',
-      channelDescription: 'Notifications for person detection',
-      importance: Importance.max,
-      priority: Priority.high,
-      styleInformation: styleInfo,
-      ticker: 'Person detected',
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.alarm,
-      visibility: NotificationVisibility.public,
-      actions: [
-        const AndroidNotificationAction('view', 'View Alert'),
-        const AndroidNotificationAction('dismiss', 'Dismiss'),
-      ],
-    );
-
-    // Create The Notification Details.
-    final notificationDetails = NotificationDetails(android: androidDetails);
-
-    // Show The Notification.
     try {
+      final gadgetIp = _container.read(gadgetIpProvider); 
+
+      // Create unique notification ID
+      final notificationId = DateTime.now().millisecondsSinceEpoch % 100000;
+
+      debugPrint('🔔 Creating notification with ID: $notificationId');
+
+      // Create notification content
+      final notification = NotificationData(
+        title: isTest ? 'Test Notification' : '🚨 Person Detected!',
+        body: isTest 
+            ? 'This is a test notification to verify the system is working.'
+            : 'A person has been detected by ${cameraName ?? 'your security system'}.',
+        timestamp: DateTime.now(),
+        cameraName: cameraName ?? 'Camera Node 1',
+        image: imageBytes,
+        debugInfo: 'Gadget IP: $gadgetIp${cameraUrl != null ? '\nCamera URL: $cameraUrl' : ''}',
+      );
+
+      // Cache notification data
+      _latestNotification = notification;
+      _latestImage = imageBytes;
+      _addToNotificationQueue(notification);
+
+      // Configure Android notification details
+      final androidDetails = AndroidNotificationDetails(
+        'person_detection_channel',
+        'Person Detection',
+        channelDescription: 'Notifications for person detection',
+        importance: Importance.max,
+        priority: Priority.high,
+        fullScreenIntent: true,
+        category: AndroidNotificationCategory.alarm,
+        visibility: NotificationVisibility.public,
+        playSound: true,
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([0, 500, 200, 500]),
+        ledColor: const Color.fromARGB(255, 255, 0, 0),
+        ledOnMs: 1000,
+        ledOffMs: 500,
+        channelShowBadge: true,
+        autoCancel: true,
+        ticker: 'Person detected!',
+      );
+
+      debugPrint('🔔 Showing system notification...');
+
+      // Always show the system notification first
       await _notifications.show(
-        DateTime.now().millisecondsSinceEpoch % 100000,
+        notificationId,
         notification.title,
         notification.body,
-        notificationDetails,
+        NotificationDetails(android: androidDetails),
         payload: jsonEncode(notification.toJson()),
       );
-      debugPrint('Local notification shown successfully');
+
+      debugPrint('✅ System notification shown successfully');
+
+      // Then update the security status
+      if (!isTest) {
+        debugPrint('🔄 Updating security status...');
+        _container.read(securityStatusProvider.notifier).updateWithDetection(
+          isPersonDetected: true,
+          lastDetectionTime: DateTime.now(),
+          detectedCamera: {
+            'name': cameraName,
+            'url': cameraUrl,
+          },
+        );
+      }
     } catch (e) {
-      debugPrint('Error showing local notification: $e');
+      debugPrint('❌ Error showing notification: $e');
+      // Even if system notification fails, try to update security status
+      if (!isTest) {
+        _container.read(securityStatusProvider.notifier).updateWithDetection(
+          isPersonDetected: true,
+          lastDetectionTime: DateTime.now(),
+          detectedCamera: {
+            'name': cameraName,
+            'url': cameraUrl,
+          },
+        );
+      }
     }
   }
 

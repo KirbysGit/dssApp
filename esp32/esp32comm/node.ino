@@ -541,6 +541,7 @@ void handleTurnOffLights() {
     // Deactivate Lights.
     lightsActive = false;
     digitalWrite(LEDStrip_Pin, LOW);
+    digitalWrite(4, LOW);
 
     delay(200);  // Small delay to ensure the lights get deactivated
     
@@ -859,7 +860,7 @@ void loop()
 
     // Process the classifier results with confidence threshold
     bool personDetected = false;
-    float confidence_threshold = 0.6; // Adjust this threshold as needed (0.0 to 1.0)
+    float confidence_threshold = 0.4; // Adjust this threshold as needed (0.0 to 1.0)
 
 #if EI_CLASSIFIER_OBJECT_DETECTION == 1
     ei_printf("Object detection bounding boxes:\r\n");

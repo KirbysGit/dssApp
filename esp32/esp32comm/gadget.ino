@@ -303,6 +303,7 @@ void checkSwitches() {
     
     // Track previous switch states
     static bool prevLightsState = HIGH;  // HIGH means switch is not pressed (due to INPUT_PULLUP)
+    static bool lightsOn = false;        // Track if lights are currently on
     
     // Debounce switch presses.
     if (currentMillis - lastSwitchPressTime > DEBOUNCE_DELAY) {
@@ -322,23 +323,23 @@ void checkSwitches() {
             lastSwitchPressTime = currentMillis;
         }
 
-        // Handle lights switch state change
-        if (currentLightsState != prevLightsState || input == 'l') {
+        // Handle lights switch state change or serial input
+        if ((currentLightsState == LOW && currentLightsState != prevLightsState) || input == 'l') {
             lastSwitchPressTime = currentMillis;
+            lightsOn = !lightsOn;  // Toggle lights state
             
-            if (currentLightsState == LOW) {  // Switch pressed
-                // Print notification.
-                Serial.println("[INPUT] Turn On Lights Switch Activated");
-                // Notify node to turn on lights
+            if (lightsOn) {
+                Serial.println("[INPUT] Lights toggled ON");
                 notifyNode("/turn_on_lights");
-            } else {  // Switch released
-                // Print notification.
-                Serial.println("[INPUT] Turn On Lights Switch Released");
-                // Notify node to turn off lights
+            } else {
+                Serial.println("[INPUT] Lights toggled OFF");
                 notifyNode("/turn_off_lights");
             }
             
             // Update previous state
+            prevLightsState = currentLightsState;
+        } else if (currentLightsState != prevLightsState) {
+            // Just update the previous state without triggering anything
             prevLightsState = currentLightsState;
         }
 

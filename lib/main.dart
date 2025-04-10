@@ -7,12 +7,18 @@ import 'screens/about_screen.dart';
 import 'screens/connecting_screen.dart';
 import 'theme/app_theme.dart';
 import 'services/notification_service.dart';
+import 'providers/security_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize notification service
-  final container = ProviderContainer();
+  // Initialize notification service and provider container
+  final container = ProviderContainer(
+    overrides: [
+      // Set default IP but allow it to be changed
+      gadgetIpProvider.overrideWith((ref) => '192.168.8.207'),
+    ],
+  );
   
   runApp(
     ProviderScope(

@@ -7,6 +7,7 @@ import '../models/detection_log.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/cameras_screen.dart';
 import '../screens/alert_screen.dart';
+import '../screens/test_gadget_screen.dart';
 
 class LogsScreen extends ConsumerStatefulWidget {
   const LogsScreen({Key? key}) : super(key: key);
@@ -25,7 +26,6 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
     super.initState();
     _loadInitialLogs();
     
-    // Add scroll listener for infinite scrolling
     _scrollController.addListener(() {
       if (_scrollController.position.pixels == _scrollController.position.maxScrollExtent) {
         _loadMoreLogs();
@@ -42,13 +42,49 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
   Future<void> _loadMoreLogs() async {
     if (_isLoading) return;
     setState(() => _isLoading = true);
-    // For now, just refresh the logs since we're handling real-time updates
     await ref.read(detectionLogsProvider.notifier).loadInitialLogs();
     setState(() => _isLoading = false);
   }
 
   Future<void> _refreshLogs() async {
     await _loadInitialLogs();
+  }
+
+  void _clearAllLogs() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear All Logs'),
+        content: const Text('Are you sure you want to clear all detection logs? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(detectionLogsProvider.notifier).clearLogs();
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('All logs cleared'),
+                  backgroundColor: Colors.green,
+                  behavior: SnackBarBehavior.floating,
+                  margin: const EdgeInsets.all(16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -74,146 +110,260 @@ class _LogsScreenState extends ConsumerState<LogsScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      'Detection History',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeScreen ? 28 : 24,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'SF Pro Display',
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.filter_list, color: Colors.white),
-                      onPressed: () {
-                        // TODO: Implement filtering
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              // Main Content
+              _buildHeader(isLargeScreen),
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: _refreshLogs,
-                  child: logs.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No detection logs yet',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontFamily: 'SF Pro Text',
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isLargeScreen ? 24.0 : 16.0,
-                            vertical: 16.0,
-                          ),
-                          itemCount: logs.length + 1,
-                          itemBuilder: (context, index) {
-                            if (index == logs.length) {
-                              return _isLoading
-                                  ? const Center(
-                                      child: Padding(
-                                        padding: EdgeInsets.all(16.0),
-                                        child: CircularProgressIndicator(
-                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                        ),
-                                      ),
-                                    )
-                                  : const SizedBox.shrink();
-                            }
+                  child: SingleChildScrollView(
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLargeScreen ? 24.0 : 16.0,
+                      vertical: 24.0,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionHeader('Recent Detections'),
+                        const SizedBox(height: 16),
+                        logs.isEmpty
+                            ? _buildEmptyState()
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: logs.length + 1,
+                                itemBuilder: (context, index) {
+                                  if (index == logs.length) {
+                                    return _isLoading
+                                        ? const Center(
+                                            child: Padding(
+                                              padding: EdgeInsets.all(16.0),
+                                              child: CircularProgressIndicator(
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink();
+                                  }
 
-                            final log = logs[index];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 16.0),
-                              child: LogEntryCard(
-                                log: log,
-                                dateFormatter: _dateFormatter,
-                                isLargeScreen: isLargeScreen,
+                                  final log = logs[index];
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 16.0),
+                                    child: LogEntryCard(
+                                      log: log,
+                                      dateFormatter: _dateFormatter,
+                                      isLargeScreen: isLargeScreen,
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
-                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.deepForestGreen,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
+      bottomNavigationBar: _buildBottomNavBar(context),
+      floatingActionButton: logs.isNotEmpty
+          ? FloatingActionButton(
+              onPressed: _clearAllLogs,
+              backgroundColor: Colors.red.withOpacity(0.8),
+              child: const Icon(Icons.delete_outline),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildHeader(bool isLargeScreen) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Security Logs',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isLargeScreen ? 28 : 24,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'SF Pro Display',
+                ),
+              ),
+              Text(
+                'View detection history and alerts',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 14,
+                  fontFamily: 'SF Pro Text',
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          if (_isLoading)
+            const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                strokeWidth: 2,
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _refreshLogs,
+              tooltip: 'Refresh Logs',
             ),
-          ],
-        ),
-        child: NavigationBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          height: 65,
-          selectedIndex: 0, // Logs tab is selected
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          destinations: [
-            NavigationDestination(
-              icon: Icon(Icons.history_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.history, color: Colors.white),
-              label: 'Logs',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.home, color: Colors.white),
-              label: 'Home',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.camera_alt_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.camera_alt, color: Colors.white),
-              label: 'Cameras',
-            ),
-          ],
-          onDestinationSelected: (index) {
-            switch (index) {
-              case 0:
-                // Already on logs
-                break;
-              case 1:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const DashboardScreen(),
-                  ),
-                );
-                break;
-              case 2:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const CamerasScreen(),
-                  ),
-                );
-                break;
-            }
-          },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'SF Pro Display',
         ),
       ),
     );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.history_outlined,
+            size: 48,
+            color: Colors.white.withOpacity(0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Detection Logs',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'SF Pro Display',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Detection events will appear here',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: 'SF Pro Text',
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _refreshLogs,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.deepForestGreen.withOpacity(0.8),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 12,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.deepForestGreen,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: NavigationBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        height: 65,
+        selectedIndex: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: [
+          _buildNavDestination(Icons.history_outlined, Icons.history, 'Logs'),
+          _buildNavDestination(Icons.home_outlined, Icons.home, 'Home'),
+          _buildNavDestination(Icons.camera_alt_outlined, Icons.camera_alt, 'Cameras'),
+          _buildNavDestination(Icons.build_outlined, Icons.build, 'Utility'),
+        ],
+        onDestinationSelected: (index) => _handleNavigation(context, index),
+      ),
+    );
+  }
+
+  NavigationDestination _buildNavDestination(
+    IconData outlinedIcon,
+    IconData filledIcon,
+    String label,
+  ) {
+    return NavigationDestination(
+      icon: Icon(outlinedIcon, color: Colors.white.withOpacity(0.7)),
+      selectedIcon: Icon(filledIcon, color: Colors.white),
+      label: label,
+    );
+  }
+
+  void _handleNavigation(BuildContext context, int index) {
+    final routes = [
+      const LogsScreen(),
+      const DashboardScreen(),
+      const CamerasScreen(),
+      const TestGadgetScreen(),
+    ];
+
+    if (index != 0) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => routes[index],
+        ),
+      );
+    }
   }
 
   @override

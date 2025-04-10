@@ -32,6 +32,7 @@ import '../widgets/section_header.dart';
 import '../providers/security_provider.dart';
 import '../services/camera_image_service.dart';
 import '../widgets/cameras_list.dart' as widgets;
+import '../services/notification_service.dart';
 
 // Dashboard Screen.
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -273,17 +274,26 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with SingleTi
             return;
           }
 
-          debugPrint('🚨 Showing detection alert...');
+          debugPrint('🚨 Showing detection alert and system notification...');
           setState(() {
             _lastAlertTime = now;
           });
 
+          // First show the system notification
+          NotificationService().showNotification(
+            title: '🚨 Person Detected!',
+            body: 'A person has been detected by your security system.',
+            cameraName: next.cameras.isNotEmpty ? next.cameras.first['name'] : null,
+            cameraUrl: next.cameras.isNotEmpty ? next.cameras.first['url'] : null,
+          );
+
+          // Then fetch image and show in-app alert
           _fetchLatestImage(next).then((_) {
             if (mounted && _latestImage != null) {
-              debugPrint('📸 Image fetched successfully, displaying alert');
+              debugPrint('📸 Image fetched successfully, displaying in-app alert');
               _showDetectionAlert(next);
             } else {
-              debugPrint('❌ Failed to show alert: mounted=$mounted, hasImage=${_latestImage != null}');
+              debugPrint('❌ Failed to show in-app alert: mounted=$mounted, hasImage=${_latestImage != null}');
             }
           });
           ref.read(securityStatusProvider.notifier).acknowledgeNotification();

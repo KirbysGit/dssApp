@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/rendering.dart';
 import './dashboard_screen.dart';
 import './logs_screen.dart';
+import './test_gadget_screen.dart';
 
 class CamerasScreen extends ConsumerStatefulWidget {
   const CamerasScreen({Key? key}) : super(key: key);
@@ -30,111 +31,26 @@ class _CamerasScreenState extends ConsumerState<CamerasScreen> {
   Future<void> _captureImage(String cameraUrl) async {
     setState(() => _isLoading = true);
     try {
-      // Make HTTP request to camera URL to capture image
       final response = await http.get(Uri.parse(cameraUrl))
           .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        // Check if the response is a valid image
-        if (response.headers['content-type']?.contains('image/') == true) {
-          // Create an Image widget from the response bytes
-          final capturedImage = Image.memory(
-            response.bodyBytes,
-            fit: BoxFit.contain,
-          );
+      if (response.statusCode == 200 && 
+          response.headers['content-type']?.contains('image/') == true) {
+        final capturedImage = Image.memory(
+          response.bodyBytes,
+          fit: BoxFit.contain,
+        );
 
-          // Show the captured image in a dialog
-          if (mounted) {
-            await showDialog(
-              context: context,
-              builder: (BuildContext context) => Dialog(
-                backgroundColor: Colors.transparent,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      constraints: BoxConstraints(
-                        maxHeight: MediaQuery.of(context).size.height * 0.7,
-                        maxWidth: MediaQuery.of(context).size.width * 0.9,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.3),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Flexible(
-                                child: ClipRRect(
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(20),
-                                  ),
-                                  child: capturedImage,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.all(16),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'Captured: ${DateFormat('MMM dd, yyyy, hh:mm a').format(DateTime.now())}',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                        fontFamily: 'SF Pro Text',
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.close, color: Colors.white),
-                                      onPressed: () => Navigator.of(context).pop(),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Image captured successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          throw Exception('Invalid image format received');
+        if (mounted) {
+          await _showCapturedImageDialog(capturedImage);
+          _showSuccessMessage('Image captured successfully');
         }
       } else {
-        throw Exception('Failed to capture image: ${response.statusCode}');
+        throw Exception('Invalid image format received');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to capture image: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showErrorMessage('Failed to capture image: ${e.toString()}');
       }
       debugPrint('Error capturing image: $e');
     } finally {
@@ -142,6 +58,100 @@ class _CamerasScreenState extends ConsumerState<CamerasScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _showCapturedImageDialog(Image capturedImage) async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+            maxWidth: MediaQuery.of(context).size.width * 0.9,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Flexible(
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(20),
+                      ),
+                      child: capturedImage,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Captured: ${_dateFormatter.format(DateTime.now())}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontFamily: 'SF Pro Text',
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
   }
 
   @override
@@ -167,128 +177,229 @@ class _CamerasScreenState extends ConsumerState<CamerasScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      'Connected Cameras',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeScreen ? 28 : 24,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'SF Pro Display',
-                      ),
-                    ),
-                    const Spacer(),
-                    if (_isLoading)
-                      const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          strokeWidth: 2,
-                        ),
-                      )
-                    else
-                      IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.white),
-                        onPressed: _refreshCameras,
-                      ),
-                  ],
-                ),
-              ),
-
-              // Main Content
+              _buildHeader(isLargeScreen),
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: _refreshCameras,
-                  child: securityState.cameras.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No cameras connected',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontFamily: 'SF Pro Text',
-                            ),
-                          ),
-                        )
-                      : CamerasList(
-                          cameras: securityState.cameras,
-                          dateFormatter: _dateFormatter,
-                          onRefresh: (camera) => _captureImage(camera['url'] as String),
-                          isLargeScreen: isLargeScreen,
-                        ),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLargeScreen ? 24.0 : 16.0,
+                      vertical: 24.0,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSectionHeader('Live Camera Feeds'),
+                        const SizedBox(height: 16),
+                        securityState.cameras.isEmpty
+                            ? _buildEmptyState()
+                            : CamerasList(
+                                cameras: securityState.cameras,
+                                dateFormatter: _dateFormatter,
+                                onRefresh: (camera) => _captureImage(camera['url'] as String),
+                                isLargeScreen: isLargeScreen,
+                              ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.deepForestGreen,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
+      bottomNavigationBar: _buildBottomNavBar(context),
+    );
+  }
+
+  Widget _buildHeader(bool isLargeScreen) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Camera Control',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isLargeScreen ? 28 : 24,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'SF Pro Display',
+                ),
+              ),
+              Text(
+                'Monitor and capture from your cameras',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 14,
+                  fontFamily: 'SF Pro Text',
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          if (_isLoading)
+            const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                strokeWidth: 2,
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _refreshCameras,
+              tooltip: 'Refresh Cameras',
             ),
-          ],
-        ),
-        child: NavigationBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          height: 65,
-          selectedIndex: 2, // Cameras tab is selected
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          destinations: [
-            NavigationDestination(
-              icon: Icon(Icons.history_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.history, color: Colors.white),
-              label: 'Logs',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.home, color: Colors.white),
-              label: 'Home',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.camera_alt_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.camera_alt, color: Colors.white),
-              label: 'Cameras',
-            ),
-          ],
-          onDestinationSelected: (index) {
-            switch (index) {
-              case 0:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const LogsScreen(),
-                  ),
-                );
-                break;
-              case 1:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const DashboardScreen(),
-                  ),
-                );
-                break;
-              case 2:
-                // Already on cameras
-                break;
-            }
-          },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'SF Pro Display',
         ),
       ),
     );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.videocam_off,
+            size: 48,
+            color: Colors.white.withOpacity(0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Cameras Connected',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'SF Pro Display',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Connect a camera to start monitoring',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.7),
+              fontSize: 14,
+              fontFamily: 'SF Pro Text',
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _refreshCameras,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Refresh'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.deepForestGreen.withOpacity(0.8),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 12,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavBar(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.deepForestGreen,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: NavigationBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        height: 65,
+        selectedIndex: 2,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: [
+          _buildNavDestination(Icons.history_outlined, Icons.history, 'Logs'),
+          _buildNavDestination(Icons.home_outlined, Icons.home, 'Home'),
+          _buildNavDestination(Icons.camera_alt_outlined, Icons.camera_alt, 'Cameras'),
+          _buildNavDestination(Icons.build_outlined, Icons.build, 'Utility'),
+        ],
+        onDestinationSelected: (index) => _handleNavigation(context, index),
+      ),
+    );
+  }
+
+  NavigationDestination _buildNavDestination(
+    IconData outlinedIcon,
+    IconData filledIcon,
+    String label,
+  ) {
+    return NavigationDestination(
+      icon: Icon(outlinedIcon, color: Colors.white.withOpacity(0.7)),
+      selectedIcon: Icon(filledIcon, color: Colors.white),
+      label: label,
+    );
+  }
+
+  void _handleNavigation(BuildContext context, int index) {
+    final routes = [
+      const LogsScreen(),
+      const DashboardScreen(),
+      const CamerasScreen(),
+      const TestGadgetScreen(),
+    ];
+
+    if (index != 2) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => routes[index],
+        ),
+      );
+    }
   }
 }
 

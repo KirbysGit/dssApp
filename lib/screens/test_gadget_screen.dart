@@ -241,74 +241,9 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      'Gadget Utility',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: isLargeScreen ? 28 : 24,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'SF Pro Display',
-                      ),
-                    ),
-                    const Spacer(),
-                    // Simple connection status indicator
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _isConnected 
-                          ? Colors.green.withOpacity(0.2) 
-                          : Colors.red.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _isConnected ? Icons.check_circle : Icons.error,
-                            color: _isConnected ? Colors.green : Colors.red,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _isConnected ? 'Connected' : 'Disconnected',
-                            style: TextStyle(
-                              color: _isConnected ? Colors.green : Colors.red,
-                              fontSize: 12,
-                              fontFamily: 'SF Pro Text',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // IP Configuration button
-                    IconButton(
-                      onPressed: _showIpConfigDialog,
-                      icon: const Icon(
-                        Icons.settings,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      tooltip: 'Configure IP',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ),
-              ),
-
+              // Enhanced Header with Status
+              _buildHeader(isLargeScreen, gadgetIp),
+              
               // Main Content
               Expanded(
                 child: SingleChildScrollView(
@@ -316,126 +251,218 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
                     horizontal: isLargeScreen ? 24.0 : 16.0,
                     vertical: 24.0,
                   ),
-                  child: isLargeScreen
-                      ? GridView.count(
-                          crossAxisCount: 3,
-                          shrinkWrap: true,
-                          mainAxisSpacing: 16,
-                          crossAxisSpacing: 16,
-                          childAspectRatio: 1.2,
-                          physics: const NeverScrollableScrollPhysics(),
-                          children: _buildUtilityButtons(),
-                        )
-                      : Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: _buildUtilityButtons(),
-                        ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Status Card
+                      _buildStatusCard(),
+                      const SizedBox(height: 24),
+                      
+                      // Controls Section
+                      _buildSectionHeader('Security Controls'),
+                      const SizedBox(height: 16),
+                      _buildControlsGrid(isLargeScreen),
+                      
+                      const SizedBox(height: 24),
+                      
+                      // System Actions Section
+                      _buildSectionHeader('System Actions'),
+                      const SizedBox(height: 16),
+                      _buildSystemActionsGrid(isLargeScreen),
+                    ],
+                  ),
                 ),
               ),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.deepForestGreen,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
+      bottomNavigationBar: _buildBottomNavBar(context),
+    );
+  }
+
+  Widget _buildHeader(bool isLargeScreen, String gadgetIp) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Gadget Control Panel',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isLargeScreen ? 28 : 24,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'SF Pro Display',
+                ),
+              ),
+              Text(
+                'IP: $gadgetIp',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 12,
+                  fontFamily: 'SF Pro Text',
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          IconButton(
+            onPressed: _showIpConfigDialog,
+            icon: const Icon(
+              Icons.settings,
+              color: Colors.white,
+              size: 24,
             ),
-          ],
+            tooltip: 'Configure IP',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _isConnected ? Colors.green.withOpacity(0.3) : Colors.red.withOpacity(0.3),
+          width: 1,
         ),
-        child: NavigationBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          height: 65,
-          selectedIndex: 3,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          destinations: [
-            NavigationDestination(
-              icon: Icon(Icons.history_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.history, color: Colors.white),
-              label: 'Logs',
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _isConnected ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+              shape: BoxShape.circle,
             ),
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.home, color: Colors.white),
-              label: 'Home',
+            child: Icon(
+              _isConnected ? Icons.wifi : Icons.wifi_off,
+              color: _isConnected ? Colors.green : Colors.red,
+              size: 24,
             ),
-            NavigationDestination(
-              icon: Icon(Icons.camera_alt_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.camera_alt, color: Colors.white),
-              label: 'Cameras',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.build_outlined, color: Colors.white.withOpacity(0.7)),
-              selectedIcon: const Icon(Icons.build, color: Colors.white),
-              label: 'Utility',
-            ),
-          ],
-          onDestinationSelected: (index) {
-            switch (index) {
-              case 0:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const LogsScreen(),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isConnected ? 'Connected' : 'Disconnected',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'SF Pro Display',
                   ),
-                );
-                break;
-              case 1:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const DashboardScreen(),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _isConnected 
+                    ? 'System is online and ready'
+                    : 'Check your connection settings',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 14,
+                    fontFamily: 'SF Pro Text',
                   ),
-                );
-                break;
-              case 2:
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(
-                    builder: (context) => const CamerasScreen(),
-                  ),
-                );
-                break;
-              case 3:
-                // Already on utility screen
-                break;
-            }
-          },
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: _checkConnection,
+            icon: Icon(
+              Icons.refresh,
+              color: Colors.white.withOpacity(0.7),
+            ),
+            tooltip: 'Refresh Connection',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'SF Pro Display',
         ),
       ),
     );
   }
 
-  List<Widget> _buildUtilityButtons() {
-    return [
-      _buildUtilityButton(
+  Widget _buildControlsGrid(bool isLargeScreen) {
+    final controls = [
+      _buildControlButton(
         icon: Icons.warning,
         label: 'Trigger Alarm',
         color: Colors.red,
         onPressed: () => _sendTestCommand('/test_trigger_alarm', 'Trigger Alarm'),
       ),
-      _buildUtilityButton(
+      _buildControlButton(
         icon: Icons.notifications_off,
         label: 'Turn Off Alarm',
         color: Colors.orange,
         onPressed: () => _sendTestCommand('/test_turn_off_alarm', 'Turn Off Alarm'),
       ),
-      _buildUtilityButton(
+      _buildControlButton(
         icon: Icons.lightbulb,
         label: 'Turn On Lights',
         color: AppTheme.pineGreen,
         onPressed: () => _sendTestCommand('/test_turn_on_lights', 'Turn On Lights'),
       ),
-      _buildUtilityButton(
+      _buildControlButton(
         icon: Icons.lightbulb_outline,
         label: 'Turn Off Lights',
         color: AppTheme.deepForestGreen,
         onPressed: () => _sendTestCommand('/test_turn_off_lights', 'Turn Off Lights'),
       ),
-      _buildUtilityButton(
+    ];
+
+    return isLargeScreen
+        ? GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            childAspectRatio: 2,
+            physics: const NeverScrollableScrollPhysics(),
+            children: controls,
+          )
+        : Column(
+            children: controls.map((control) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: control,
+              );
+            }).toList(),
+          );
+  }
+
+  Widget _buildSystemActionsGrid(bool isLargeScreen) {
+    final actions = [
+      _buildControlButton(
         icon: Icons.power_settings_new,
         label: 'Restart Gadget',
         color: Colors.grey,
@@ -444,49 +471,171 @@ class _TestGadgetScreenState extends ConsumerState<TestGadgetScreen> {
           'Are you sure you want to restart the gadget? This will temporarily disconnect all services.',
           () => _sendTestCommand('/test_restart_gadget', 'Restart Gadget'),
         ),
+        isDestructive: true,
       ),
     ];
+
+    return isLargeScreen
+        ? GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            mainAxisSpacing: 16,
+            crossAxisSpacing: 16,
+            childAspectRatio: 2,
+            physics: const NeverScrollableScrollPhysics(),
+            children: actions,
+          )
+        : Column(
+            children: actions.map((action) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: action,
+              );
+            }).toList(),
+          );
   }
 
-  Widget _buildUtilityButton({
+  Widget _buildControlButton({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onPressed,
+    bool isDestructive = false,
   }) {
-    return SizedBox(
-      width: 160,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color.withOpacity(0.8),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 20,
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 32),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'SF Pro Text',
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              border: Border.all(
+                color: color.withOpacity(0.3),
+                width: 1,
               ),
+              borderRadius: BorderRadius.circular(12),
             ),
-          ],
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'SF Pro Display',
+                        ),
+                      ),
+                      if (isDestructive) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Use with caution',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: 12,
+                            fontFamily: 'SF Pro Text',
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  color: Colors.white.withOpacity(0.5),
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildBottomNavBar(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.deepForestGreen,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: NavigationBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        height: 65,
+        selectedIndex: 3,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: [
+          _buildNavDestination(Icons.history_outlined, Icons.history, 'Logs'),
+          _buildNavDestination(Icons.home_outlined, Icons.home, 'Home'),
+          _buildNavDestination(Icons.camera_alt_outlined, Icons.camera_alt, 'Cameras'),
+          _buildNavDestination(Icons.build_outlined, Icons.build, 'Utility'),
+        ],
+        onDestinationSelected: (index) => _handleNavigation(context, index),
+      ),
+    );
+  }
+
+  NavigationDestination _buildNavDestination(
+    IconData outlinedIcon,
+    IconData filledIcon,
+    String label,
+  ) {
+    return NavigationDestination(
+      icon: Icon(outlinedIcon, color: Colors.white.withOpacity(0.7)),
+      selectedIcon: Icon(filledIcon, color: Colors.white),
+      label: label,
+    );
+  }
+
+  void _handleNavigation(BuildContext context, int index) {
+    final routes = [
+      const LogsScreen(),
+      const DashboardScreen(),
+      const CamerasScreen(),
+      const TestGadgetScreen(),
+    ];
+
+    if (index != 3) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => routes[index],
+        ),
+      );
+    }
   }
 
   Future<void> _confirmDestructiveAction(

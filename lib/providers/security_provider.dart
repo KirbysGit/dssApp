@@ -21,6 +21,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Basic configuration provider with default IP
 final gadgetIpProvider = StateProvider<String>((ref) => '192.168.8.207');
 
+// Security service provider that uses the current IP from the provider
 final securityServiceProvider = Provider((ref) => SecurityService(
   gadgetIp: ref.watch(gadgetIpProvider),
 ));
